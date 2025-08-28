@@ -1,0 +1,174 @@
+#pragma once
+
+#include <vector>
+#include <stdint.h>
+#include <fstream>
+#include <iostream>
+#include <memory>
+#include <atomic>
+#include <mutex>
+#include <cstring>
+#include <condition_variable>
+
+namespace ngfixlib {
+
+typedef unsigned int id_t;
+const int CAPACITY_INC = 4;
+const int INF = std::numeric_limits<uint16_t>::max();
+const float INF_RATIO = 0.2;
+
+
+uint8_t GET_CAPACITY(uint8_t* array) {
+    return *(array);
+}
+
+uint8_t GET_SZ(uint8_t* array) {
+    return *(array + 1);
+}
+
+uint8_t GET_NGFIX_CAPACITY(uint8_t* array) {
+    return *(array + 2);
+}
+
+uint8_t GET_NGFIX_SZ(uint8_t* array) {
+    return *(array + 3);
+}
+
+void SET_CAPACITY(uint8_t* array, uint8_t val) {
+    *array = val;
+}
+
+void SET_SZ(uint8_t* array, uint8_t val) {
+    *(array + 1) = val;
+}
+
+void SET_NGFIX_CAPACITY(uint8_t* array, uint8_t val) {
+    *(array + 2) = val;
+}
+
+void SET_NGFIX_SZ(uint8_t* array, uint8_t val) {
+    *(array + 3) = val;
+}
+
+struct node
+{
+    //  edge layout -> [ ngfix_edges,  base_graph_edges]
+    // [{capacity, sz, delete_flag, ref_count}, edges]
+    id_t* neighbors = nullptr;
+    uint16_t* ehs = nullptr;
+
+    node() {
+        neighbors = new id_t[CAPACITY_INC + 1];
+        neighbors[0] = 0;
+        SET_CAPACITY((uint8_t*)neighbors, CAPACITY_INC);
+    }
+
+    id_t* get_neighbors() {
+        return neighbors;
+    }
+
+    void add_base_graph_neighbors(id_t v) {
+        uint8_t sz = GET_SZ((uint8_t*)neighbors);
+        uint8_t capacity = GET_CAPACITY((uint8_t*)neighbors);
+        if(sz + 1 > capacity) {
+            capacity += CAPACITY_INC;
+
+            auto n = new id_t[capacity + 1];
+            memcpy(n, neighbors, sizeof(id_t)*(sz + 1));
+            n[sz + 1] = v;
+            SET_SZ((uint8_t*)n, sz + 1);
+            SET_CAPACITY((uint8_t*)n, capacity);
+            
+            auto tmp = neighbors;
+            neighbors = n;
+
+            delete []tmp;
+        } else {
+            neighbors[sz + 1] = v;
+            SET_SZ((uint8_t*)neighbors, sz + 1);
+        }
+        
+    }
+
+    // new_neighbors.size() <= 2M
+    void replace_base_graph_neighbors(std::vector<std::pair<float, id_t> >& new_neighbors) {
+        uint8_t ngfix_sz = GET_NGFIX_SZ((uint8_t*)neighbors);
+        uint8_t sz = new_neighbors.size() + ngfix_sz;
+        uint8_t capacity = ((sz + CAPACITY_INC - 1) / CAPACITY_INC) * CAPACITY_INC;
+
+        auto n = new id_t[capacity + 1];
+        memcpy(n, neighbors, sizeof(id_t)*(ngfix_sz + 1));
+        for(int i = 0; i < new_neighbors.size(); ++i) {
+            n[ngfix_sz + i + 1] = new_neighbors[i].second;
+        }
+        SET_SZ((uint8_t*)n, sz);
+        SET_CAPACITY((uint8_t*)n, capacity);
+        auto tmp = neighbors;
+        neighbors = n;
+
+        delete []tmp;
+        
+    }
+
+    void add_ngfix_neighbors(id_t v, uint16_t eh, size_t MEX) {
+        // id_t ngfix_sz = ehs[0];
+        // id_t sz = neighbors[0];
+
+        // if(ngfix_sz == MEX) { // prune edges
+
+        // } else{
+        //     if(ngfix_sz + 1 > ngfix_capacity) {
+        //         capacity += CAPACITY_INC;
+        //         ngfix_capacity += CAPACITY_INC;
+
+        //         std::shared_ptr<id_t[]> n(new id_t[capacity + 1]);
+        //         memcpy(n.get(), neighbors.get(), sizeof(id_t)*(sz + 1));
+        //         std::shared_ptr<id_t[]> tmp1 = std::atomic_exchange(&neighbors, n);
+
+        //         std::shared_ptr<uint16_t[]> n_ehs(new uint16_t[ngfix_capacity + 1]);
+        //         memcpy(n_ehs.get(), ehs.get(), sizeof(uint16_t)*(ngfix_sz + 1));
+        //         std::shared_ptr<uint16_t[]> tmp2 = std::atomic_exchange(&ehs, n_ehs);
+        //     }
+        // }
+        // neighbors[sz + 1] = v;
+        // neighbors[0] = sz + 1;
+        // ehs[ngfix_sz + 1] = eh;
+        // ehs[0] = ngfix_sz + 1;
+
+    }
+
+    void StoreIndex(std::ofstream& s) {
+        uint8_t sz = GET_SZ((uint8_t*)neighbors);
+        uint8_t ngfix_sz = GET_NGFIX_SZ((uint8_t*)neighbors);
+        s.write((char*)neighbors, sizeof(id_t)*(sz + 1));
+        if(ngfix_sz > 0) {
+            s.write((char*)&ehs, sizeof(uint16_t)*ngfix_sz);
+        }
+    }
+
+    void LoadIndex(std::ifstream& s) {
+        id_t meta;
+        s.read((char*)(&meta), sizeof(id_t));
+        
+        uint8_t* meta_bytes = (uint8_t*)(&meta);
+        uint8_t capacity = meta_bytes[0];
+        uint8_t sz = meta_bytes[1];
+        uint8_t ngfix_capacity = meta_bytes[2];
+        uint8_t ngfix_sz = meta_bytes[3];
+        
+        delete []neighbors;
+        neighbors = new id_t[capacity + 1];
+        neighbors[0] = meta;
+        
+        if (sz > 0) {
+            s.read((char*)(neighbors + 1), sizeof(id_t)*sz);
+        }
+        
+        if (ngfix_sz > 0) {
+            if(ehs != nullptr) {delete []ehs;}
+            ehs = new uint16_t[ngfix_capacity];
+            s.read((char*)(ehs), sizeof(uint16_t)*ngfix_sz);
+        }
+    }
+};
+}
