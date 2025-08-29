@@ -27,8 +27,6 @@ public:
         return result;
     };
 
-    
-
     L2Space_float(size_t _dimension_) : Space<float>(_dimension_) {}
 };
 

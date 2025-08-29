@@ -3,12 +3,18 @@
 #include <memory>
 #include <atomic>
 #include <shared_mutex>
+#include <bitset>
+#include <unordered_set>
+#include <boost/functional/hash.hpp>
+#include <map>
 #include "node.h"
 #include "../utils/search_queue.h"
 #include "../utils/visited_list.h"
 #include "../metric/l2.h"
 #include "../metric/ip.h"
 
+static const size_t MAX_Nq = 500;
+static const size_t MAX_S = 500;
 
 namespace ngfixlib {
 
@@ -40,7 +46,6 @@ private:
         for(int i = 0; i < n; ++i) {
             Graph[i].LoadIndex(input);
         }
-
     }
 
 public:
@@ -53,8 +58,8 @@ public:
     std::atomic<size_t> n = 0;
     std::unique_ptr<VisitedListPool> visited_list_pool_{nullptr};
 
-    HNSW_NGFix(Metric metric, size_t dimension, size_t max_elements, T* data, size_t M_ = 16)
-                : node_locks(max_elements), M(M_) {
+    HNSW_NGFix(Metric metric, size_t dimension, size_t max_elements, T* data, size_t M_ = 16, size_t MEX_ = 48)
+                : node_locks(max_elements), M(M_), MEX(MEX_) {
         M0 = 2*M;
         this->dim = dimension;
         this->vecdata = data;
@@ -122,9 +127,14 @@ public:
     }
 
     // <neighbors, out-degree>
-    std::pair<id_t*, id_t> getNeighbors(id_t u) {
+    auto getNeighbors(id_t u) {
         auto tmp = Graph[u].get_neighbors();
-        return {tmp, GET_SZ((uint8_t*)tmp)};
+        return std::tuple{tmp, GET_SZ((uint8_t*)tmp), GET_NGFIX_CAPACITY((uint8_t*)tmp) - GET_NGFIX_SZ((uint8_t*)tmp) + 1};
+    }
+
+    auto getBaseGraphNeighbors(id_t u) {
+        auto tmp = Graph[u].get_neighbors();
+        return std::tuple{tmp, GET_SZ((uint8_t*)tmp), GET_NGFIX_CAPACITY((uint8_t*)tmp) + 1};
     }
 
     float getDist(id_t u, id_t v) {
@@ -160,14 +170,13 @@ public:
             }
         }
 
-
         return return_list;
     }
 
 
     void HNSWBottomLayerInsertion(T* data, id_t cur_id, size_t efC) {
         size_t NDC = 0;
-        auto res = searchKnn(data, efC, efC, NDC);
+        auto res = searchKnnBaseGraph(data, efC, efC, NDC);
         auto neighbors = getNeighborsByHeuristic(res, M);
         
         { // add edge (cur_id, neighbor_id)
@@ -178,7 +187,7 @@ public:
         // add edge (neighbor_id, cur_id)
         for(auto [_, neighbor_id] : neighbors) {
             std::unique_lock <std::shared_mutex> lock(node_locks[neighbor_id]);
-            auto [ids, sz] = getNeighbors(neighbor_id);
+            auto [ids, sz, st] = getBaseGraphNeighbors(neighbor_id);
             if(sz < M0) {
                 Graph[neighbor_id].add_base_graph_neighbors(cur_id);
             } else {
@@ -187,7 +196,7 @@ public:
                 // Heuristic:
                 std::vector<std::pair<float, id_t> > candidates;
                 candidates.push_back({d_max, cur_id});
-                for (size_t j = 1; j <= sz; j++) {
+                for (int j = st; j <= sz; j++) {
                     candidates.push_back({getDist(ids[j], neighbor_id) , ids[j]});
                 }
                 std::sort(candidates.begin(), candidates.end());
@@ -196,11 +205,6 @@ public:
                 Graph[neighbor_id].replace_base_graph_neighbors(neighbors);
             }
         }
-        
-
-    }
-    void PrepareData(T* data) {
-        vecdata = data;
     }
 
     // The insertion method is HNSW's bottom layer
@@ -213,7 +217,6 @@ public:
         if(n != 0) {
             HNSWBottomLayerInsertion(data, id, efC);
         }
-
         ++n;
         if(n % 100000 == 0) {
             SetEntryPoint();
@@ -222,6 +225,146 @@ public:
 
     void DeletePoint(id_t id) {
 
+    }
+
+    std::unordered_map<id_t, std::vector<id_t> > ComputeGq(int* gt, size_t S) 
+    {
+        std::unordered_map<id_t, std::vector<id_t> > G;
+        std::unordered_set<id_t> Vq;
+        for(int i = 0; i < S; ++i){
+            Vq.insert(gt[i]);
+        }
+        for(int i = 0; i < S; ++i){
+            int u = gt[i];
+            auto [ids, sz, st] = getNeighbors(u);
+            for (int j = st; j <= sz; ++j){
+                id_t v = ids[j];
+                if(Vq.find(v) == Vq.end()){
+                    continue;
+                }
+                G[u].push_back(v);
+            }
+        }
+
+        return G;
+    }
+
+    std::vector<std::vector<uint16_t> > CalculateHardness(int* gt, size_t Nq, size_t Kh, size_t S) 
+    {
+        auto Gq = ComputeGq(gt, S);
+        std::unordered_map<id_t, uint16_t> p2rank;
+        for(int i = 0; i < S; ++i){
+            p2rank[gt[i]] = i;
+        }
+        
+        std::vector<std::vector<uint16_t> > H;
+        std::bitset<MAX_S> f[S];
+        H.resize(Nq);
+        for(int i = 0; i < Nq; ++i){
+            H[i].resize(Nq, INF);
+        }
+        for(int h = 0; h < S; ++h){
+            f[h][h] = 1;
+            if(h < Nq){
+                H[h][h] = h;
+            }
+        }
+
+        for(auto [u, neighbors] : Gq){
+            int i = p2rank[u];
+            for(auto v : neighbors){
+                int j = p2rank[v];
+                f[i][j] = 1;
+                if(i < Nq && j < Nq){
+                    H[i][j] = std::max(i,j);
+                }
+            }
+        }
+
+        for(int h = 0; h < S; ++h){
+            for(int i = 0; i < S; ++i){
+                auto last = f[i];
+                if(f[i][h]){
+                    f[i] |= f[h];
+                }
+                last ^= f[i];
+                if(i < Nq && last.count() > 0){
+                    for(int j = 0; j < Nq; ++j){
+                        if(last[j] == 1){
+                            H[i][j] = h;
+                        }
+                    }
+                }
+            }
+        }
+        return H;
+    }
+
+    auto getDefectsFixingEdges(
+        std::bitset<MAX_Nq> f[],
+        std::vector<std::vector<uint16_t> >& H,
+        float* query, int* gt, size_t Nq, size_t Kh) {
+        
+        std::unordered_map<id_t, std::vector<std::pair<id_t, uint16_t> > > new_edges;
+
+        std::vector<std::pair<float, std::pair<int,int> > > vs;
+        for(int i = 0; i < Nq; ++i){
+            for(int j = 0; j < Nq; ++j){
+                if(f[i][j] == 1) {continue;}
+                int u = gt[i];
+                int v = gt[j]; 
+                float d = getDist(u, v);
+                vs.push_back({d,{i,j}});
+            }
+        }
+        std::sort(vs.begin(), vs.end());
+
+        for(auto [d, e] : vs){
+            int s = e.first;
+            int t = e.second;
+            if(f[s][t] == 1) {continue;}
+
+            int u = gt[s];
+            int v = gt[t];
+
+            new_edges[u].push_back({v, H[s][t]});
+
+            f[s][t] = 1;
+            for(int i = 0; i < Nq; ++i){
+                if(f[i][s]){
+                    f[i] |= f[t];
+                }
+            }
+        }
+        return new_edges;
+    }
+
+    void NGFix(T* query, int* gt, size_t Nq = 100, size_t Kh = 100) {
+        auto H = CalculateHardness(gt, Nq, Kh, 3*Nq);
+        
+        std::bitset<MAX_Nq> f[Nq];
+        for(int i = 0; i < Nq; ++i){
+            for(int j = 0; j < Nq; ++j){
+                f[i][j] = (H[i][j] <= Kh) ? 1 : 0;
+            }
+        }
+        auto new_edges = getDefectsFixingEdges(f, H, query, gt, Nq, Kh);
+        for(auto [u, vs] : new_edges) {
+            std::unique_lock <std::shared_mutex> lock(node_locks[u]);
+            for(auto [v, eh] : vs) {
+                // printf("add edges %d %d\n", u,v);
+                Graph[u].add_ngfix_neighbors(v, eh, MEX);
+            }
+        }
+        
+    }
+
+    void AKNNGroundTruth(T* query, int* gt, size_t k, size_t efC) {
+        size_t ndc = 0;
+        auto result = searchKnn(query, k, efC, ndc);
+        for(int i = 0; i < k; ++i) {
+            gt[i] = result[i].second;
+        }
     }
 
     // set ep to centroid
@@ -252,6 +395,57 @@ public:
         delete []centroid;
     }
 
+    std::vector<std::pair<float, id_t> > searchKnnBaseGraph(T* query_data, size_t k, size_t ef, size_t& ndc) {
+        VisitedList *vl = visited_list_pool_->getFreeVisitedList();
+        vl_type *visited_array = vl->mass;
+        vl_type visited_array_tag = vl->curV;
+
+        Search_PriorityQueue q0(ef);
+        auto q = &q0;
+
+        float dist = getDist(entry_point, query_data);
+        q->push(entry_point, dist);
+        visited_array[entry_point] = visited_array_tag;
+        while (!q->is_empty()) {
+            std::pair<float, id_t> current_node_pair = q->get_next_id();
+            id_t current_node_id = current_node_pair.second;
+
+            _mm_prefetch((char *)(visited_array + current_node_id), _MM_HINT_T0);
+            _mm_prefetch((char *)(vecdata + current_node_id * dim), _MM_HINT_T0);
+
+            float candidate_dist = -current_node_pair.first;
+            bool flag_stop_search;
+            flag_stop_search = candidate_dist > q->get_dist_bound();
+
+            if (flag_stop_search) {
+                break;
+            }
+            
+            std::shared_lock <std::shared_mutex> lock(node_locks[current_node_id]);
+            auto [outs, sz, st] = getBaseGraphNeighbors(current_node_id);
+            for (int i = st; i <= sz; ++i) {
+                id_t candidate_id = outs[i];
+
+                if(i < sz) {
+                    _mm_prefetch((char*) (visited_array + outs[i+1]), _MM_HINT_T0);
+                    _mm_prefetch((char*) (vecdata + outs[i+1] * dim), _MM_HINT_T0);
+                }
+
+                if (!(visited_array[candidate_id] == visited_array_tag)) {
+                    visited_array[candidate_id] = visited_array_tag;
+                    float dist = getDist(candidate_id, query_data);
+                    q->push(candidate_id, dist);
+
+                    ndc += 1;
+                }
+            }
+        }
+        visited_list_pool_->releaseVisitedList(vl);
+        auto res = q->get_result(k);
+
+        return res;
+    }
+
     std::vector<std::pair<float, id_t> > searchKnn(T* query_data, size_t k, size_t ef, size_t& ndc) {
         VisitedList *vl = visited_list_pool_->getFreeVisitedList();
         vl_type *visited_array = vl->mass;
@@ -279,9 +473,9 @@ public:
             }
             
             std::shared_lock <std::shared_mutex> lock(node_locks[current_node_id]);
-            auto [outs, sz] = getNeighbors(current_node_id);
-            for (int i = 1; i <= sz; ++i) {
-                int candidate_id = outs[i];
+            auto [outs, sz, st] = getNeighbors(current_node_id);
+            for (int i = st; i <= sz; ++i) {
+                id_t candidate_id = outs[i];
 
                 if(i < sz) {
                     _mm_prefetch((char*) (visited_array + outs[i+1]), _MM_HINT_T0);

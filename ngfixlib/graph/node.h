@@ -52,8 +52,16 @@ void SET_NGFIX_SZ(uint8_t* array, uint8_t val) {
 
 struct node
 {
-    //  edge layout -> [ ngfix_edges,  base_graph_edges]
-    // [{capacity, sz, delete_flag, ref_count}, edges]
+    /*
+        edge layout [***>>>>>>>>>>>>>>>>>>, >>>>>>>>>>>*** ]   (*:empty,  >:real edges)
+                          ngfix_edges       base_graph_edges
+        
+        sz = number of ">"
+        capacity = number of ">" + number of "*"
+    */
+
+
+    // neighbros => [{capacity, sz, delete_flag, ref_count}, edges]
     id_t* neighbors = nullptr;
     uint16_t* ehs = nullptr;
 
@@ -70,70 +78,107 @@ struct node
     void add_base_graph_neighbors(id_t v) {
         uint8_t sz = GET_SZ((uint8_t*)neighbors);
         uint8_t capacity = GET_CAPACITY((uint8_t*)neighbors);
-        if(sz + 1 > capacity) {
+        uint8_t ngfix_capacity = GET_NGFIX_CAPACITY((uint8_t*)neighbors);
+        uint8_t base_sz = sz - GET_NGFIX_SZ((uint8_t*)neighbors);
+        uint8_t base_capacity = capacity - ngfix_capacity;
+
+        sz += 1;
+        base_sz += 1;
+
+        if(base_sz > base_capacity) {
             capacity += CAPACITY_INC;
 
             auto n = new id_t[capacity + 1];
-            memcpy(n, neighbors, sizeof(id_t)*(sz + 1));
-            n[sz + 1] = v;
-            SET_SZ((uint8_t*)n, sz + 1);
+            memcpy(n, neighbors, sizeof(id_t)*(capacity - CAPACITY_INC + 1));
+            n[ngfix_capacity + base_sz] = v;
+            SET_SZ((uint8_t*)n, sz);
             SET_CAPACITY((uint8_t*)n, capacity);
             
             auto tmp = neighbors;
             neighbors = n;
-
             delete []tmp;
         } else {
-            neighbors[sz + 1] = v;
-            SET_SZ((uint8_t*)neighbors, sz + 1);
+            neighbors[ngfix_capacity + base_sz] = v;
+            SET_SZ((uint8_t*)neighbors, sz);
         }
         
     }
 
     // new_neighbors.size() <= 2M
     void replace_base_graph_neighbors(std::vector<std::pair<float, id_t> >& new_neighbors) {
-        uint8_t ngfix_sz = GET_NGFIX_SZ((uint8_t*)neighbors);
-        uint8_t sz = new_neighbors.size() + ngfix_sz;
+        uint8_t ngfix_capacity = GET_NGFIX_CAPACITY((uint8_t*)neighbors);
+        uint8_t sz = new_neighbors.size() + ngfix_capacity;
         uint8_t capacity = ((sz + CAPACITY_INC - 1) / CAPACITY_INC) * CAPACITY_INC;
 
         auto n = new id_t[capacity + 1];
-        memcpy(n, neighbors, sizeof(id_t)*(ngfix_sz + 1));
+        memcpy(n, neighbors, sizeof(id_t)*(ngfix_capacity + 1));
         for(int i = 0; i < new_neighbors.size(); ++i) {
-            n[ngfix_sz + i + 1] = new_neighbors[i].second;
+            n[ngfix_capacity + i + 1] = new_neighbors[i].second;
         }
         SET_SZ((uint8_t*)n, sz);
         SET_CAPACITY((uint8_t*)n, capacity);
+
         auto tmp = neighbors;
         neighbors = n;
-
         delete []tmp;
         
     }
 
     void add_ngfix_neighbors(id_t v, uint16_t eh, size_t MEX) {
-        // id_t ngfix_sz = ehs[0];
-        // id_t sz = neighbors[0];
+        uint8_t sz = GET_SZ((uint8_t*)neighbors);
+        uint8_t capacity = GET_CAPACITY((uint8_t*)neighbors);
+        uint8_t ngfix_sz = GET_NGFIX_SZ((uint8_t*)neighbors);
+        uint8_t ngfix_capacity = GET_NGFIX_CAPACITY((uint8_t*)neighbors);
+        // printf("%d %d %d %d %d\n", sz, capacity, ngfix_sz, ngfix_capacity, MEX);
+        if(ngfix_sz == MEX) { // prune edges
 
-        // if(ngfix_sz == MEX) { // prune edges
+        } else{
+            ngfix_sz += 1;
+            sz += 1;
+            if(ngfix_sz > ngfix_capacity) {
+                capacity += CAPACITY_INC;
+                ngfix_capacity += CAPACITY_INC;
 
-        // } else{
-        //     if(ngfix_sz + 1 > ngfix_capacity) {
-        //         capacity += CAPACITY_INC;
-        //         ngfix_capacity += CAPACITY_INC;
+                auto n = new id_t[capacity + 1];
+                memcpy(n + 1 + CAPACITY_INC, neighbors + 1, sizeof(id_t)*(capacity - CAPACITY_INC));
+                n[ngfix_capacity - ngfix_sz + 1] = v;
 
-        //         std::shared_ptr<id_t[]> n(new id_t[capacity + 1]);
-        //         memcpy(n.get(), neighbors.get(), sizeof(id_t)*(sz + 1));
-        //         std::shared_ptr<id_t[]> tmp1 = std::atomic_exchange(&neighbors, n);
+                SET_SZ((uint8_t*)n, sz);
+                SET_CAPACITY((uint8_t*)n, capacity);
+                SET_NGFIX_SZ((uint8_t*)n, ngfix_sz);
+                SET_NGFIX_CAPACITY((uint8_t*)n, ngfix_capacity);
+                
+                auto tmp = neighbors;
+                neighbors = n;
+                delete []tmp;
 
-        //         std::shared_ptr<uint16_t[]> n_ehs(new uint16_t[ngfix_capacity + 1]);
-        //         memcpy(n_ehs.get(), ehs.get(), sizeof(uint16_t)*(ngfix_sz + 1));
-        //         std::shared_ptr<uint16_t[]> tmp2 = std::atomic_exchange(&ehs, n_ehs);
-        //     }
-        // }
-        // neighbors[sz + 1] = v;
-        // neighbors[0] = sz + 1;
-        // ehs[ngfix_sz + 1] = eh;
-        // ehs[0] = ngfix_sz + 1;
+                // for(int i = 0; i < ngfix_capacity; ++i) {
+                //     printf("%d ", neighbors[i+1]);
+                // }printf("\n");
+                // printf("%d %d %d %d %d\n", sz, capacity, ngfix_sz, ngfix_capacity, MEX);
+
+                auto n_ehs = new uint16_t[ngfix_capacity];
+                memcpy(n_ehs + CAPACITY_INC, ehs, sizeof(uint16_t)*(ngfix_capacity - CAPACITY_INC));
+                n_ehs[ngfix_capacity - ngfix_sz] = eh;
+
+                auto tmp2 = ehs;
+                ehs = n_ehs;
+                if(tmp2 != nullptr) {
+                    delete []tmp2;
+                }
+
+            } else {
+                ehs[ngfix_capacity - ngfix_sz + 1] = eh;
+                neighbors[ngfix_capacity - ngfix_sz + 1] = v;
+                SET_SZ((uint8_t*)neighbors, sz);
+                SET_NGFIX_SZ((uint8_t*)neighbors, ngfix_sz);
+
+                // for(int i = 0; i < ngfix_capacity; ++i) {
+                //     printf("%d ", neighbors[i+1]);
+                // }printf("\n");
+                // printf("%d %d %d %d %d\n", sz, capacity, ngfix_sz, ngfix_capacity, MEX);
+            }
+        }
 
     }
 

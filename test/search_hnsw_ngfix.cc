@@ -4,44 +4,65 @@
 #include <iostream>
 using namespace ngfixlib;
 
-int main()
+int main(int argc, char* argv[])
 {
-    size_t test_number = 0, base_number = 0, train_number = 0;
-    size_t test_gt_dim = 0, train_gt_dim = 0, vecdim = 0;
-
-    // std::string data_path = "/SSD/WebVid/";
-    // auto test_query = LoadData<float>(data_path + "webvid.query.10k.fbin", test_number, vecdim);
-    // auto test_gt = LoadData<int>(data_path + "gt.query.top100.bin", test_number, test_gt_dim);
-    // auto base_data = LoadData<float>(data_path + "webvid.base.2.5M.fbin", base_number, vecdim);
-
-    // std::string data_path = "/SSD/SIFT1M/";
-    // auto test_query = LoadData<float>(data_path + "sift_query.fbin", test_number, vecdim);
-    // auto test_gt = LoadData<int>(data_path + "gt.query.top100.bin", test_number, test_gt_dim);
-    // auto base_data = LoadData<float>(data_path + "sift_base.fbin", base_number, vecdim);
-
-    // std::string data_path = "/SSD/DEEP10M/";
-    // auto test_query = LoadData<float>(data_path + "query.fbin", test_number, vecdim);
-    // auto test_gt = LoadData<int>(data_path + "gt.query.top100.bin", test_number, test_gt_dim);
-    // auto base_data = LoadData<float>(data_path + "base.fbin", base_number, vecdim);
-
-    // std::string data_path = "/SSD/SIFT1B/";
-    // auto test_query = LoadData<float>(data_path + "query.public.10K.fbin", test_number, vecdim);
-    // auto test_gt = LoadData<int>(data_path + "gt.public.10K_10M_top100.bin", test_number, test_gt_dim);
-    // auto u8_base = LoadData<uint8_t>(data_path + "slice.10M.u8bin", base_number, vecdim);
-    // auto base_data = u8_f32(u8_base, base_number*vecdim);
-    // delete []u8_base;
+    int k = 0;
+    std::unordered_map<std::string, std::string> paths;
+    for (int i = 0; i < argc; i++) {
+        std::string arg = argv[i];
+        if (arg == "--base_data_path")
+            paths["base_data_path"] = argv[i + 1];
+        if (arg == "--test_query_path")
+            paths["test_query_path"] = argv[i + 1];
+        if (arg == "--test_gt_path")
+            paths["test_gt_path"] = argv[i + 1];
+        if (arg == "--test_number")
+            paths["test_number"] = argv[i + 1];
+        if (arg == "--metric")
+            paths["metric"] = argv[i + 1];
+        if (arg == "--index_path")
+            paths["index_path"] = argv[i + 1];
+        if (arg == "--result_path")
+            paths["result_path"] = argv[i + 1];
+        if (arg == "--K")
+            k = std::stoi(argv[i + 1]);
+    }
     
-    std::string data_path = "/SSD/Text-to-Image/";
-    auto test_query = LoadData<float>(data_path + "query.10k.fbin", test_number, vecdim);
-    auto test_gt = LoadData<int>(data_path + "gt.10K_10M.bin", test_number, test_gt_dim);
-    auto base_data = LoadData<float>(data_path + "base.10M.fbin", base_number, vecdim);
+    std::string base_path = paths["base_data_path"];
+    std::cout<<"base_data_path: "<<base_path<<"\n";
+    std::string test_query_path = paths["test_query_path"];
+    std::cout<<"test_query_path: "<<test_query_path<<"\n";
+    std::string test_gt_path = paths["test_gt_path"];
+    std::cout<<"test_gt_path: "<<test_gt_path<<"\n";
+    std::string index_path = paths["index_path"];
+    std::cout<<"index_path: "<<index_path<<"\n";
+    std::string result_path = paths["result_path"];
+    std::cout<<"result_path: "<<result_path<<"\n";
+    std::string metric_str = paths["metric"];
 
-    auto hnsw_ngfix = new HNSW_NGFix<float>(IP_float, vecdim, base_number, base_data, "/SSD/models/hnsw/test_t2i");
+    size_t test_number = 0, base_number = 0;
+    size_t test_gt_dim = 0, vecdim = 0;
+
+    auto base_data = LoadData<float>(base_path, base_number, vecdim);
+    auto test_query = LoadData<float>(test_query_path, test_number, vecdim);
+    auto test_gt = LoadData<int>(test_gt_path, test_number, test_gt_dim);
+    Metric metric;
+    if(metric_str == "ip_float") {
+        std::cout<<"metric ip\n";
+        metric = IP_float;
+    } else if(metric_str == "l2_float") {
+        std::cout<<"metric l2\n";
+        metric = L2_float;
+    } else {
+        throw std::runtime_error("Error: Unsupported metric type.");
+    }
+
+    auto hnsw_ngfix = new HNSW_NGFix<float>(metric, vecdim, base_number, base_data, index_path);
     hnsw_ngfix->printGraphInfo();
 
     std::ofstream output;
-    output.open("/home/hzy/NGFix2/test/hign_ngfix.csv");
-    TestQueries<float>(output, test_query, test_gt, test_number, 100, test_gt_dim, vecdim, hnsw_ngfix);
+    output.open(result_path);
+    TestQueries<float>(output, test_query, test_gt, test_number, k, test_gt_dim, vecdim, hnsw_ngfix);
 
     return 0;
 }

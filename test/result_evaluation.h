@@ -95,7 +95,12 @@ void TestQueries(std::ostream& s, T* test_query, int* test_gt, size_t test_numbe
     //output header
     s << "efs, recall, ndc, latency, rderr\n";
     
-    std::vector<int> efss{100,110,120,130,140,150,180,190,200,250,300,400,500,800,1000,2000};
+    std::vector<int> efss;
+    if(k == 100) {
+        efss = std::vector<int>{100,110,120,130,140,150,160,180,200,250,300,400,500,800,1000,2000};
+    } else if(k == 10) {
+        efss = std::vector<int>{10,15,20,30,40,50,60,70,80,90,100,120,150,180,200,300,400,500,800,1000};
+    }
 
     for(auto efs : efss) {
         std::cerr<<efs<<"\n";
