@@ -14,7 +14,7 @@ namespace ngfixlib {
 
 typedef unsigned int id_t;
 const int CAPACITY_INC = 4;
-const int INF = std::numeric_limits<uint16_t>::max();
+const int EH_INF = std::numeric_limits<uint16_t>::max();
 const float INF_RATIO = 0.2;
 
 
@@ -131,6 +131,26 @@ struct node
         uint8_t ngfix_capacity = GET_NGFIX_CAPACITY((uint8_t*)neighbors);
         // printf("%d %d %d %d %d\n", sz, capacity, ngfix_sz, ngfix_capacity, MEX);
         if(ngfix_sz == MEX) { // prune edges
+            // assuming MEX % CAPACITY_INC = 0
+            size_t inf_cnt = 0;
+            size_t min_idx = 0;
+            size_t min_eh = EH_INF;
+            for(int i = 0; i < MEX; ++i) {
+                if(ehs[i] < min_eh) {
+                    min_eh = ehs[i];
+                    min_idx = i;
+                }
+                if(ehs[i] == EH_INF) {
+                    ++inf_cnt;
+                }
+            }
+            // Too many long edges (i.e., edges with inf EH) will improve performance when L >= MAX_S (high recall),
+            // but will decrease the search performance when L is low (e.g. moderate recall or low recall).
+            // Therefore, we limit the number of edges with inf EH.
+            if(eh == EH_INF && inf_cnt >= (float)MEX * INF_RATIO) {return;}
+            if(eh < min_eh) {return;}
+            ehs[min_idx] = eh;
+            neighbors[min_idx + 1] = v;
 
         } else{
             ngfix_sz += 1;
@@ -183,11 +203,11 @@ struct node
     }
 
     void StoreIndex(std::ofstream& s) {
-        uint8_t sz = GET_SZ((uint8_t*)neighbors);
-        uint8_t ngfix_sz = GET_NGFIX_SZ((uint8_t*)neighbors);
-        s.write((char*)neighbors, sizeof(id_t)*(sz + 1));
-        if(ngfix_sz > 0) {
-            s.write((char*)&ehs, sizeof(uint16_t)*ngfix_sz);
+        uint8_t capacity = GET_CAPACITY((uint8_t*)neighbors);
+        uint8_t ngfix_capacity = GET_NGFIX_CAPACITY((uint8_t*)neighbors);
+        s.write((char*)neighbors, sizeof(id_t)*(capacity + 1));
+        if(ngfix_capacity > 0) {
+            s.write((char*)&ehs, sizeof(uint16_t)*ngfix_capacity);
         }
     }
 
@@ -205,14 +225,14 @@ struct node
         neighbors = new id_t[capacity + 1];
         neighbors[0] = meta;
         
-        if (sz > 0) {
-            s.read((char*)(neighbors + 1), sizeof(id_t)*sz);
+        if (capacity > 0) {
+            s.read((char*)(neighbors + 1), sizeof(id_t)*capacity);
         }
         
-        if (ngfix_sz > 0) {
+        if (ngfix_capacity > 0) {
             if(ehs != nullptr) {delete []ehs;}
             ehs = new uint16_t[ngfix_capacity];
-            s.read((char*)(ehs), sizeof(uint16_t)*ngfix_sz);
+            s.read((char*)(ehs), sizeof(uint16_t)*ngfix_capacity);
         }
     }
 };

@@ -11,3 +11,4 @@ SET( CMAKE_CXX_FLAGS  "-Ofast -lrt -std=c++20 -DHAVE_CXX0X -march=native -fpic -
 
 add_executable(build_hnsw_ngfix test/build_hnsw_ngfix.cc)
 add_executable(search_hnsw_ngfix test/search_hnsw_ngfix.cc)
+add_executable(build_hnsw_bottom test/build_hnsw_bottom.cc)

@@ -1,6 +1,6 @@
 #include "../ngfixlib/graph/hnsw_ngfix.h"
-#include "data_loader.h"
-#include "result_evaluation.h"
+#include "tools/data_loader.h"
+#include "tools/result_evaluation.h"
 #include <iostream>
 using namespace ngfixlib;
 
@@ -16,8 +16,6 @@ int main(int argc, char* argv[])
             paths["test_query_path"] = argv[i + 1];
         if (arg == "--test_gt_path")
             paths["test_gt_path"] = argv[i + 1];
-        if (arg == "--test_number")
-            paths["test_number"] = argv[i + 1];
         if (arg == "--metric")
             paths["metric"] = argv[i + 1];
         if (arg == "--index_path")

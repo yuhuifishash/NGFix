@@ -8,7 +8,7 @@
 #include <boost/functional/hash.hpp>
 #include <map>
 #include "node.h"
-#include "../utils/search_queue.h"
+#include "../utils/search_list.h"
 #include "../utils/visited_list.h"
 #include "../metric/l2.h"
 #include "../metric/ip.h"
@@ -56,7 +56,7 @@ public:
     size_t entry_point = 0;
     size_t max_elements;
     std::atomic<size_t> n = 0;
-    std::unique_ptr<VisitedListPool> visited_list_pool_{nullptr};
+    std::shared_ptr<VisitedListPool> visited_list_pool_{nullptr};
 
     HNSW_NGFix(Metric metric, size_t dimension, size_t max_elements, T* data, size_t M_ = 16, size_t MEX_ = 48)
                 : node_locks(max_elements), M(M_), MEX(MEX_) {
@@ -72,7 +72,7 @@ public:
             throw std::runtime_error("Error: Unsupported metric type.");
         }
         Graph.resize(this->max_elements);
-        visited_list_pool_ = std::unique_ptr<VisitedListPool>(new VisitedListPool(1, this->max_elements));
+        visited_list_pool_ = std::shared_ptr<VisitedListPool>(new VisitedListPool(1, this->max_elements));
     }
 
     HNSW_NGFix(Metric metric, size_t dimension, size_t max_elements, T* data, std::string path)
@@ -88,7 +88,7 @@ public:
             throw std::runtime_error("Error: Unsupported metric type.");
         }
         Graph.resize(this->max_elements);
-        visited_list_pool_ = std::unique_ptr<VisitedListPool>(new VisitedListPool(1, this->max_elements));
+        visited_list_pool_ = std::shared_ptr<VisitedListPool>(new VisitedListPool(1, this->max_elements));
         LoadIndex(path);
     }
 
@@ -261,7 +261,7 @@ public:
         std::bitset<MAX_S> f[S];
         H.resize(Nq);
         for(int i = 0; i < Nq; ++i){
-            H[i].resize(Nq, INF);
+            H[i].resize(Nq, EH_INF);
         }
         for(int h = 0; h < S; ++h){
             f[h][h] = 1;
@@ -340,8 +340,10 @@ public:
     }
 
     void NGFix(T* query, int* gt, size_t Nq = 100, size_t Kh = 100) {
-        auto H = CalculateHardness(gt, Nq, Kh, 3*Nq);
-        
+        if(Nq > MAX_Nq) {
+            throw std::runtime_error("Error: Nq >= MAX_Nq.");
+        }
+        auto H = CalculateHardness(gt, Nq, Kh, std::min(MAX_S, 3*Nq));
         std::bitset<MAX_Nq> f[Nq];
         for(int i = 0; i < Nq; ++i){
             for(int j = 0; j < Nq; ++j){
@@ -357,6 +359,84 @@ public:
             }
         }
         
+    }
+
+    // return S = {v | delta(v, q) < delta(u, q)}
+    std::vector<id_t> searchCloserPoints(T* query_data, size_t ef, size_t u, size_t& ndc) {
+        // Search_PriorityQueue q0(ef, visited_list_pool_);
+        // Search_Array q0(ef, visited_list_pool_);
+        Search_QuadHeap q0(ef, visited_list_pool_);
+        auto q = &q0;
+        
+        std::vector<id_t> res;
+        float dist_u_q = getDist(u, query_data);
+        q->push(u, dist_u_q);
+        q->set_visited(u);
+        while (!q->is_empty()) {
+            std::pair<float, id_t> current_node_pair = q->get_next_id();
+            id_t current_node_id = current_node_pair.second;
+
+            float candidate_dist = -current_node_pair.first;
+            bool flag_stop_search;
+            flag_stop_search = candidate_dist > q->get_dist_bound();
+
+            if (flag_stop_search) {
+                break;
+            }
+
+            std::shared_lock <std::shared_mutex> lock(node_locks[current_node_id]);
+            auto [outs, sz, st] = getNeighbors(current_node_id);
+            for (int i = st; i <= sz; ++i) {
+                id_t candidate_id = outs[i];
+                if(i < sz) {
+                    q->prefetch_visited_list(outs[i+1]);
+                }
+                if (!q->is_visited(candidate_id)) {
+                    q->set_visited(candidate_id);
+                    float dist = getDist(candidate_id, query_data);
+                    if(dist < dist_u_q) {
+                        res.push_back(candidate_id);
+                    }
+                    q->push(candidate_id, dist);
+                    ndc += 1;
+                }
+            }
+        }
+        q->releaseVisitedList();
+        return res;
+    }
+
+    /* Experiments show that for most historical queries, 
+       a single round of RF is sufficient to bring the search to the vicinity of the query. 
+       For simplicity, we perform only one round of RFix. 
+    */
+    void RFix(T* query, int* gt, size_t Nq = 10, size_t efC = 1500) {
+        size_t ndc = 0;
+        size_t k = 1;
+        auto result = searchKnn(query, k, Nq, ndc);
+        
+        id_t ANN = result[0].second;
+        float d1 = result[0].first;
+        float d2 = getDist(gt[Nq - 1], query);
+        if(d1 > d2) { // can not reach NG_{Nq,q}
+            auto res = searchCloserPoints(query, efC, ANN, ndc);
+            
+            id_t u = ANN;
+            std::vector<std::pair<float, id_t> > candidates;
+            for(auto i : res){
+                candidates.push_back({getDist(u, i), i});
+            }
+            std::sort(candidates.begin(), candidates.end());
+
+            auto neighbors = getNeighborsByHeuristic(candidates, 6);
+
+            {
+                std::unique_lock <std::shared_mutex> lock(node_locks[u]);
+                for(auto [d, v] : neighbors) {
+                    Graph[u].add_ngfix_neighbors(v, MAX_S + 1, MEX);
+                }
+            }
+        }
     }
 
     void AKNNGroundTruth(T* query, int* gt, size_t k, size_t efC) {
@@ -396,22 +476,17 @@ public:
     }
 
     std::vector<std::pair<float, id_t> > searchKnnBaseGraph(T* query_data, size_t k, size_t ef, size_t& ndc) {
-        VisitedList *vl = visited_list_pool_->getFreeVisitedList();
-        vl_type *visited_array = vl->mass;
-        vl_type visited_array_tag = vl->curV;
-
-        Search_PriorityQueue q0(ef);
+        // Search_PriorityQueue q0(ef, visited_list_pool_);
+        // Search_Array q0(ef, visited_list_pool_);
+        Search_QuadHeap q0(ef, visited_list_pool_);
         auto q = &q0;
 
         float dist = getDist(entry_point, query_data);
         q->push(entry_point, dist);
-        visited_array[entry_point] = visited_array_tag;
+        q->set_visited(entry_point);
         while (!q->is_empty()) {
             std::pair<float, id_t> current_node_pair = q->get_next_id();
             id_t current_node_id = current_node_pair.second;
-
-            _mm_prefetch((char *)(visited_array + current_node_id), _MM_HINT_T0);
-            _mm_prefetch((char *)(vecdata + current_node_id * dim), _MM_HINT_T0);
 
             float candidate_dist = -current_node_pair.first;
             bool flag_stop_search;
@@ -427,12 +502,11 @@ public:
                 id_t candidate_id = outs[i];
 
                 if(i < sz) {
-                    _mm_prefetch((char*) (visited_array + outs[i+1]), _MM_HINT_T0);
-                    _mm_prefetch((char*) (vecdata + outs[i+1] * dim), _MM_HINT_T0);
+                    q->prefetch_visited_list(outs[i+1]);
                 }
 
-                if (!(visited_array[candidate_id] == visited_array_tag)) {
-                    visited_array[candidate_id] = visited_array_tag;
+                if (!q->is_visited(candidate_id)) {
+                    q->set_visited(candidate_id);
                     float dist = getDist(candidate_id, query_data);
                     q->push(candidate_id, dist);
 
@@ -440,29 +514,24 @@ public:
                 }
             }
         }
-        visited_list_pool_->releaseVisitedList(vl);
+        q->releaseVisitedList();
         auto res = q->get_result(k);
 
         return res;
     }
 
     std::vector<std::pair<float, id_t> > searchKnn(T* query_data, size_t k, size_t ef, size_t& ndc) {
-        VisitedList *vl = visited_list_pool_->getFreeVisitedList();
-        vl_type *visited_array = vl->mass;
-        vl_type visited_array_tag = vl->curV;
-
-        Search_PriorityQueue q0(ef);
+        // Search_PriorityQueue q0(ef, visited_list_pool_);
+        // Search_Array q0(ef, visited_list_pool_);
+        Search_QuadHeap q0(ef, visited_list_pool_);
         auto q = &q0;
-
+        
         float dist = getDist(entry_point, query_data);
         q->push(entry_point, dist);
-        visited_array[entry_point] = visited_array_tag;
+        q->set_visited(entry_point);
         while (!q->is_empty()) {
             std::pair<float, id_t> current_node_pair = q->get_next_id();
             id_t current_node_id = current_node_pair.second;
-
-            _mm_prefetch((char *)(visited_array + current_node_id), _MM_HINT_T0);
-            _mm_prefetch((char *)(vecdata + current_node_id * dim), _MM_HINT_T0);
 
             float candidate_dist = -current_node_pair.first;
             bool flag_stop_search;
@@ -471,19 +540,17 @@ public:
             if (flag_stop_search) {
                 break;
             }
-            
+            // std::cout<<current_node_id<<" "<<candidate_dist<<"\n";
             std::shared_lock <std::shared_mutex> lock(node_locks[current_node_id]);
             auto [outs, sz, st] = getNeighbors(current_node_id);
             for (int i = st; i <= sz; ++i) {
                 id_t candidate_id = outs[i];
-
                 if(i < sz) {
-                    _mm_prefetch((char*) (visited_array + outs[i+1]), _MM_HINT_T0);
-                    _mm_prefetch((char*) (vecdata + outs[i+1] * dim), _MM_HINT_T0);
+                    q->prefetch_visited_list(outs[i+1]);
                 }
 
-                if (!(visited_array[candidate_id] == visited_array_tag)) {
-                    visited_array[candidate_id] = visited_array_tag;
+                if (!q->is_visited(candidate_id)) {
+                    q->set_visited(candidate_id);
                     float dist = getDist(candidate_id, query_data);
                     q->push(candidate_id, dist);
 
@@ -491,9 +558,8 @@ public:
                 }
             }
         }
-        visited_list_pool_->releaseVisitedList(vl);
+        q->releaseVisitedList();
         auto res = q->get_result(k);
-
         return res;
     }
 

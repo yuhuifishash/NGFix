@@ -3,6 +3,9 @@
 #include <vector>
 #include <cstring>
 #include <string>
+#include <fstream>
+#include <iostream>
+#include <mutex>
 
 #define LOG
 

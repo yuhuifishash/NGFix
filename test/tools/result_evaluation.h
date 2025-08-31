@@ -9,7 +9,7 @@
 #include <set>
 #include <sys/time.h>
 #include <unordered_set>
-#include "../ngfixlib/graph/hnsw_ngfix.h"
+#include "../../ngfixlib/graph/hnsw_ngfix.h"
 using namespace ngfixlib;
 
 #define OutputResult
@@ -57,7 +57,7 @@ SearchResult TestSingleQuery(T* query_data, int* gt, size_t k, size_t efs, HNSW_
     int ret = gettimeofday(&val, NULL);
 
     auto aknns = searcher->searchKnn(query_data, k, efs, ndc);
-
+    
     struct timeval newVal;
     ret = gettimeofday(&newVal, NULL);
     int64_t diff = (newVal.tv_sec * Converter + newVal.tv_usec) - (val.tv_sec * Converter + val.tv_usec);
