@@ -75,6 +75,14 @@ struct node
         return neighbors;
     }
 
+    void delete_node() {
+        delete []neighbors;
+        delete []ehs;
+        neighbors = new id_t[CAPACITY_INC + 1];
+        neighbors[0] = 0;
+        SET_CAPACITY((uint8_t*)neighbors, CAPACITY_INC);
+    }
+
     void add_base_graph_neighbors(id_t v) {
         uint8_t sz = GET_SZ((uint8_t*)neighbors);
         uint8_t capacity = GET_CAPACITY((uint8_t*)neighbors);
@@ -106,9 +114,11 @@ struct node
 
     // new_neighbors.size() <= 2M
     void replace_base_graph_neighbors(std::vector<std::pair<float, id_t> >& new_neighbors) {
+        uint8_t ngfix_sz = GET_NGFIX_SZ((uint8_t*)neighbors);
         uint8_t ngfix_capacity = GET_NGFIX_CAPACITY((uint8_t*)neighbors);
-        uint8_t sz = new_neighbors.size() + ngfix_capacity;
-        uint8_t capacity = ((sz + CAPACITY_INC - 1) / CAPACITY_INC) * CAPACITY_INC;
+        uint8_t base_sz = new_neighbors.size();
+        uint8_t sz = base_sz + ngfix_sz;
+        uint8_t capacity = ((base_sz + CAPACITY_INC - 1) / CAPACITY_INC) * CAPACITY_INC + ngfix_capacity;
 
         auto n = new id_t[capacity + 1];
         memcpy(n, neighbors, sizeof(id_t)*(ngfix_capacity + 1));
@@ -121,7 +131,55 @@ struct node
         auto tmp = neighbors;
         neighbors = n;
         delete []tmp;
+    }
+
+    // used for partial rebuilding, eh is set to 0
+    void replace_ngfix_neighbors(std::vector<id_t>& new_neighbors) {
+        uint8_t sz = GET_SZ((uint8_t*)neighbors);
+        uint8_t capacity = GET_CAPACITY((uint8_t*)neighbors);
+        uint8_t ngfix_sz = GET_NGFIX_SZ((uint8_t*)neighbors);
+        uint8_t ngfix_capacity = GET_NGFIX_CAPACITY((uint8_t*)neighbors);
+        uint8_t base_sz = sz - ngfix_sz;
+        uint8_t base_capacity = capacity - ngfix_capacity;
+
+        uint8_t new_ngfix_sz = new_neighbors.size();
+        uint8_t new_ngfix_capacity = ((new_ngfix_sz + CAPACITY_INC - 1) / CAPACITY_INC) * CAPACITY_INC;
+        uint8_t new_sz = base_sz + new_ngfix_sz;
+        uint8_t new_capacity = base_capacity + new_ngfix_capacity;
+
+        auto n = new id_t[new_capacity + 1];
+        SET_CAPACITY((uint8_t*)n, new_capacity);
+        SET_SZ((uint8_t*)n, new_sz);
+        SET_NGFIX_CAPACITY((uint8_t*)n, new_ngfix_capacity);
+        SET_NGFIX_SZ((uint8_t*)n, new_ngfix_sz);
+
+        if (base_sz > 0) {
+            memcpy(n + new_ngfix_capacity + 1, neighbors + ngfix_capacity + 1, sizeof(id_t) * base_sz);
+        }
+        for (int i = 0; i < new_ngfix_sz; ++i) {
+            n[new_ngfix_capacity - i] = new_neighbors[i];
+        }
+
+        if (new_ngfix_capacity > 0) {
+            auto n_ehs = new uint16_t[new_ngfix_capacity];
+
+            for (int i = 0; i < new_ngfix_capacity; ++i) {
+                n_ehs[i] = 0;
+            }
+            if (ehs != nullptr) {
+                delete [] ehs;
+            }
+            ehs = n_ehs;
+        } else {
+            if (ehs != nullptr) {
+                delete [] ehs;
+                ehs = nullptr;
+            }
+        }
         
+        auto tmp = neighbors;
+        neighbors = n;
+        delete []tmp;
     }
 
     void add_ngfix_neighbors(id_t v, uint16_t eh, size_t MEX) {
@@ -172,11 +230,6 @@ struct node
                 neighbors = n;
                 delete []tmp;
 
-                // for(int i = 0; i < ngfix_capacity; ++i) {
-                //     printf("%d ", neighbors[i+1]);
-                // }printf("\n");
-                // printf("%d %d %d %d %d\n", sz, capacity, ngfix_sz, ngfix_capacity, MEX);
-
                 auto n_ehs = new uint16_t[ngfix_capacity];
                 memcpy(n_ehs + CAPACITY_INC, ehs, sizeof(uint16_t)*(ngfix_capacity - CAPACITY_INC));
                 n_ehs[ngfix_capacity - ngfix_sz] = eh;
@@ -188,15 +241,10 @@ struct node
                 }
 
             } else {
-                ehs[ngfix_capacity - ngfix_sz + 1] = eh;
+                ehs[ngfix_capacity - ngfix_sz] = eh;
                 neighbors[ngfix_capacity - ngfix_sz + 1] = v;
                 SET_SZ((uint8_t*)neighbors, sz);
                 SET_NGFIX_SZ((uint8_t*)neighbors, ngfix_sz);
-
-                // for(int i = 0; i < ngfix_capacity; ++i) {
-                //     printf("%d ", neighbors[i+1]);
-                // }printf("\n");
-                // printf("%d %d %d %d %d\n", sz, capacity, ngfix_sz, ngfix_capacity, MEX);
             }
         }
 
@@ -207,7 +255,7 @@ struct node
         uint8_t ngfix_capacity = GET_NGFIX_CAPACITY((uint8_t*)neighbors);
         s.write((char*)neighbors, sizeof(id_t)*(capacity + 1));
         if(ngfix_capacity > 0) {
-            s.write((char*)&ehs, sizeof(uint16_t)*ngfix_capacity);
+            s.write((char*)ehs, sizeof(uint16_t)*ngfix_capacity);
         }
     }
 

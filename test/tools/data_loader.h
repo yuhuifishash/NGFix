@@ -16,7 +16,6 @@ T *LoadData(std::string data_path, size_t& n, size_t& d)
     fin.open(data_path, std::ios::in | std::ios::binary);
     fin.read((char*)&n,4);
     fin.read((char*)&d,4);
-
     T* data = new T[n*d];
     int sz = sizeof(T);
     for(int i = 0; i < n; ++i){
@@ -26,7 +25,7 @@ T *LoadData(std::string data_path, size_t& n, size_t& d)
 
     #ifdef LOG
         std::cout<<"load data "<<data_path<<"\n";
-        std::cout<<"dimension: "<<d<<"  number:"<<n<<"\n";
+        std::cout<<"dimension: "<<d<<"  number: "<<n<<"\n";
     #endif
     return data;
 }
@@ -50,7 +49,7 @@ auto getVectorsHead(std::string data_path, size_t& n, size_t& d)
 
     #ifdef LOG
         std::cout<<"load data head "<<data_path<<"\n";
-        std::cout<<"dimension: "<<d<<"  number:"<<n<<"\n";
+        std::cout<<"dimension: "<<d<<"  number: "<<n<<"\n";
     #endif
 
     return fin;

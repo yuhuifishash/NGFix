@@ -35,35 +35,27 @@ private:
     size_t M = 0;  // used for insertion
     size_t MEX = 0;
 
-    void LoadIndex(std::string path) {
-        std::ifstream input(path, std::ios::binary);
-        input.read((char*)&M, sizeof(M));
-        input.read((char*)&M0, sizeof(M0));
-        input.read((char*)&MEX, sizeof(MEX));
-        input.read((char*)&n, sizeof(n));
-        input.read((char*)&entry_point, sizeof(entry_point));
-
-        for(int i = 0; i < n; ++i) {
-            Graph[i].LoadIndex(input);
-        }
-    }
-
 public:
     std::vector<node> Graph;
-    T* vecdata;
+    char* vecdata;
     Space<T>* space;
     size_t dim;
     size_t entry_point = 0;
     size_t max_elements;
     std::atomic<size_t> n = 0;
     std::shared_ptr<VisitedListPool> visited_list_pool_{nullptr};
+    
+    std::shared_mutex delete_lock;
+    std::unordered_set<id_t> delete_ids;
 
-    HNSW_NGFix(Metric metric, size_t dimension, size_t max_elements, T* data, size_t M_ = 16, size_t MEX_ = 48)
+    size_t size_per_element = 0;
+
+    HNSW_NGFix(Metric metric, size_t dimension, size_t max_elements, size_t M_ = 16, size_t MEX_ = 48)
                 : node_locks(max_elements), M(M_), MEX(MEX_) {
         M0 = 2*M;
         this->dim = dimension;
-        this->vecdata = data;
         this->max_elements = max_elements;
+        this->size_per_element = dim*sizeof(T) + 1; // 8 bits for delete flag
         if (metric == L2_float) {
             space = new L2Space_float(dim);
         } else if(metric == IP_float) {
@@ -71,15 +63,23 @@ public:
         } else {
             throw std::runtime_error("Error: Unsupported metric type.");
         }
+        vecdata = new char[size_per_element*max_elements];
         Graph.resize(this->max_elements);
         visited_list_pool_ = std::shared_ptr<VisitedListPool>(new VisitedListPool(1, this->max_elements));
     }
 
-    HNSW_NGFix(Metric metric, size_t dimension, size_t max_elements, T* data, std::string path)
-                : node_locks(max_elements) {
-        this->dim = dimension;
-        this->vecdata = data;
-        this->max_elements = max_elements;
+    HNSW_NGFix(Metric metric, std::string path) {
+        std::ifstream input(path, std::ios::binary);
+
+        input.read((char*)&M, sizeof(M));
+        input.read((char*)&M0, sizeof(M0));
+        input.read((char*)&MEX, sizeof(MEX));
+        input.read((char*)&n, sizeof(n));
+        input.read((char*)&entry_point, sizeof(entry_point));
+        input.read((char*)&dim, sizeof(dim));
+        input.read((char*)&max_elements, sizeof(max_elements));
+
+        this->size_per_element = dim*sizeof(T) + 1; // 8 bits for delete flag
         if (metric == L2_float) {
             space = new L2Space_float(dim);
         } else if(metric == IP_float) {
@@ -87,22 +87,33 @@ public:
         } else {
             throw std::runtime_error("Error: Unsupported metric type.");
         }
+        vecdata = new char[size_per_element*max_elements];
+        input.read(vecdata, max_elements*size_per_element);
+
+        std::vector<std::shared_mutex>(this->max_elements).swap(node_locks);
         Graph.resize(this->max_elements);
         visited_list_pool_ = std::shared_ptr<VisitedListPool>(new VisitedListPool(1, this->max_elements));
-        LoadIndex(path);
+        
+        for(int i = 0; i < n; ++i) {
+            Graph[i].LoadIndex(input);
+        }
     }
 
     ~HNSW_NGFix() {
         delete space;
     }
 
-    void resize(T* data, size_t new_max_elements) {
+    void resize(size_t new_max_elements) {
         if(new_max_elements <= this->max_elements) {
             return;
         }
-        this->vecdata = data;
-        this->max_elements = new_max_elements;
+        
+        auto new_vecdata = new char[size_per_element*new_max_elements];
+        memcpy(new_vecdata, vecdata, size_per_element*max_elements);        
+        delete []vecdata;
+        vecdata = new_vecdata;
 
+        this->max_elements = new_max_elements;
         std::vector<std::shared_mutex>(new_max_elements).swap(node_locks);
         Graph.resize(new_max_elements);
         visited_list_pool_.reset(new VisitedListPool(1, new_max_elements));
@@ -116,25 +127,32 @@ public:
         output.write((char*)&MEX, sizeof(MEX));
         output.write((char*)&n, sizeof(n));
         output.write((char*)&entry_point, sizeof(entry_point));
+        output.write((char*)&dim, sizeof(dim));
+        output.write((char*)&max_elements, sizeof(max_elements));
 
+        output.write(vecdata, max_elements*size_per_element);
         for(int i = 0; i < n; ++i) {
             Graph[i].StoreIndex(output);
         }
     }
 
     T* getData(id_t u) {
-        return vecdata + u*dim;
+        return (T*)(vecdata + u*size_per_element + 1);
+    }
+
+    void SetData(id_t u, T* data) {
+        memcpy(getData(u), data, sizeof(T)*dim);
     }
 
     // <neighbors, out-degree>
     auto getNeighbors(id_t u) {
         auto tmp = Graph[u].get_neighbors();
-        return std::tuple{tmp, GET_SZ((uint8_t*)tmp), GET_NGFIX_CAPACITY((uint8_t*)tmp) - GET_NGFIX_SZ((uint8_t*)tmp) + 1};
+        return std::tuple{tmp, GET_SZ((uint8_t*)tmp), GET_NGFIX_CAPACITY((uint8_t*)tmp)-GET_NGFIX_SZ((uint8_t*)tmp) + 1};
     }
 
     auto getBaseGraphNeighbors(id_t u) {
         auto tmp = Graph[u].get_neighbors();
-        return std::tuple{tmp, GET_SZ((uint8_t*)tmp), GET_NGFIX_CAPACITY((uint8_t*)tmp) + 1};
+        return std::tuple{tmp, GET_SZ((uint8_t*)tmp)-GET_NGFIX_SZ((uint8_t*)tmp), GET_NGFIX_CAPACITY((uint8_t*)tmp) + 1};
     }
 
     float getDist(id_t u, id_t v) {
@@ -196,7 +214,7 @@ public:
                 // Heuristic:
                 std::vector<std::pair<float, id_t> > candidates;
                 candidates.push_back({d_max, cur_id});
-                for (int j = st; j <= sz; j++) {
+                for (int j = st; j < st + sz; j++) {
                     candidates.push_back({getDist(ids[j], neighbor_id) , ids[j]});
                 }
                 std::sort(candidates.begin(), candidates.end());
@@ -208,10 +226,11 @@ public:
     }
 
     // The insertion method is HNSW's bottom layer
-    void InsertPoint(id_t id, size_t efC) {
+    void InsertPoint(id_t id, size_t efC, T* vec) {
         if(id >= max_elements) {
             throw std::runtime_error("Error: id > max_elements.");
         }
+        SetData(id, vec);
         auto data = getData(id);
 
         if(n != 0) {
@@ -223,8 +242,97 @@ public:
         }
     }
 
-    void DeletePoint(id_t id) {
+    // remove r% NGFix edges
+    void PartialRemoveEdges(float r) {
+        for(int i = 0; i < n; ++i) {
+            std::unique_lock <std::shared_mutex> lock(node_locks[i]);
+            auto neighbors = Graph[i].neighbors;
+            std::vector<id_t> new_neighbors;
+            uint8_t ngfix_sz = GET_NGFIX_SZ((uint8_t*)neighbors);
+            uint8_t ngfix_capacity = GET_NGFIX_CAPACITY((uint8_t*)neighbors);
+            if(ngfix_sz == 0) {
+                continue;
+            } else {
+                int st = ngfix_capacity - ngfix_sz;
+                for(int j = st; j < std::max(1, (int32_t)(ngfix_sz*(1.0 - r))) + st; ++j) {
+                    new_neighbors.push_back(neighbors[j + 1]);
+                }
+            }
+            Graph[i].replace_ngfix_neighbors(new_neighbors);
+        }
+    }
 
+    void set_deleted(id_t id) {
+        (vecdata + id*size_per_element)[0] = true;
+    }
+    bool is_deleted(id_t id) {
+        return (vecdata + id*size_per_element)[0];
+    }
+
+    // You can replace the data corresponding to the deleted ID with a new vector and re-insert it after calling DeleteAllFlagNodesByNGFix.
+    void DeleteAllFlagPointsByNGFix(size_t efC_delete = 500, size_t Threads = 32) {
+        std::unordered_set<id_t> ids;
+        {
+            std::unique_lock <std::shared_mutex> lock(delete_lock);
+            ids = delete_ids;
+            delete_ids.clear();
+        }
+
+        // delete correspoding edges
+        #pragma omp parallel for schedule(dynamic) num_threads(Threads)
+        for(int i = 0; i < n; ++i) {
+            if(ids.find(i) != ids.end()) {
+                Graph[i].delete_node();
+            } else {
+                // replace ngfix neighbors and base graph neighbors
+                auto [outs, sz, st] = getNeighbors(i);
+                uint8_t ngfix_sz = GET_NGFIX_SZ((uint8_t*)outs);
+                uint8_t ngfix_capacity = GET_NGFIX_CAPACITY((uint8_t*)outs);
+                uint8_t base_sz = sz - ngfix_sz;
+
+                std::vector<id_t> new_neighbors;
+                for(int i = ngfix_capacity - ngfix_sz; i < ngfix_capacity; ++i) {
+                    if(ids.find(outs[i + 1]) == ids.end()) { // not deleted
+                        new_neighbors.push_back(outs[i + 1]);
+                    }
+                }
+                Graph[i].replace_ngfix_neighbors(new_neighbors);
+                new_neighbors.clear();
+
+                for(int i = ngfix_capacity; i < ngfix_capacity + base_sz; ++i) {
+                    if(ids.find(outs[i + 1]) == ids.end()) { // not deleted
+                        new_neighbors.push_back(outs[i + 1]);
+                    }
+                }
+                Graph[i].replace_base_graph_neighbors(new_neighbors);
+            }
+        }
+
+        std::vector<id_t> v_ids;
+        for(auto u : ids) {
+            v_ids.push_back(u);
+        }
+
+        #pragma omp parallel for schedule(dynamic) num_threads(Threads)
+        for(int i = 0; i < v_ids.size(); ++i) {
+            int* gt = new int[500];
+            AKNNGroundTruth(getData(v_ids[i]), gt, 500, efC_delete);
+            NGFix(getData(v_ids[i]), gt, 100, 100);
+            delete []gt; 
+        }
+    }
+
+    // This function is not thread-safe.
+    // We only guarantee it can be called concurrently with DeleteAllFlagPointsByNGFix.
+    void DeletePointByFlag(id_t id) {
+        set_deleted(id);
+        {
+            std::shared_lock <std::shared_mutex> lock(delete_lock);
+            if(id != entry_point) {
+                delete_ids.insert(id);
+                n = n - 1;
+            }
+        }
     }
 
     std::unordered_map<id_t, std::vector<id_t> > ComputeGq(int* gt, size_t S) 
@@ -237,7 +345,7 @@ public:
         for(int i = 0; i < S; ++i){
             int u = gt[i];
             auto [ids, sz, st] = getNeighbors(u);
-            for (int j = st; j <= sz; ++j){
+            for (int j = st; j < st + sz; ++j){
                 id_t v = ids[j];
                 if(Vq.find(v) == Vq.end()){
                     continue;
@@ -370,7 +478,7 @@ public:
         
         std::vector<id_t> res;
         float dist_u_q = getDist(u, query_data);
-        q->push(u, dist_u_q);
+        q->push(u, dist_u_q, is_deleted(u));
         q->set_visited(u);
         while (!q->is_empty()) {
             std::pair<float, id_t> current_node_pair = q->get_next_id();
@@ -386,18 +494,18 @@ public:
 
             std::shared_lock <std::shared_mutex> lock(node_locks[current_node_id]);
             auto [outs, sz, st] = getNeighbors(current_node_id);
-            for (int i = st; i <= sz; ++i) {
+            for (int i = st; i < st + sz; ++i) {
                 id_t candidate_id = outs[i];
-                if(i < sz) {
+                if(i < st + sz - 1) {
                     q->prefetch_visited_list(outs[i+1]);
                 }
                 if (!q->is_visited(candidate_id)) {
                     q->set_visited(candidate_id);
                     float dist = getDist(candidate_id, query_data);
-                    if(dist < dist_u_q) {
+                    if(dist < dist_u_q && !is_deleted(candidate_id)) {
                         res.push_back(candidate_id);
                     }
-                    q->push(candidate_id, dist);
+                    q->push(candidate_id, dist, is_deleted(candidate_id));
                     ndc += 1;
                 }
             }
@@ -452,6 +560,7 @@ public:
         T* centroid = new T[dim];
         memset(centroid, 0, sizeof(T)*dim);
         for(int i = 0; i < n; ++i) {
+            if(is_deleted(i)) {continue;}
             auto data = getData(i);
             for(int d = 0; d < dim; ++d) {
                 centroid[d] += data[d];
@@ -482,7 +591,7 @@ public:
         auto q = &q0;
 
         float dist = getDist(entry_point, query_data);
-        q->push(entry_point, dist);
+        q->push(entry_point, dist, is_deleted(entry_point));
         q->set_visited(entry_point);
         while (!q->is_empty()) {
             std::pair<float, id_t> current_node_pair = q->get_next_id();
@@ -498,17 +607,17 @@ public:
             
             std::shared_lock <std::shared_mutex> lock(node_locks[current_node_id]);
             auto [outs, sz, st] = getBaseGraphNeighbors(current_node_id);
-            for (int i = st; i <= sz; ++i) {
-                id_t candidate_id = outs[i];
 
-                if(i < sz) {
+            for (int i = st; i < st + sz; ++i) {
+                id_t candidate_id = outs[i];
+                if(i < st + sz - 1) {
                     q->prefetch_visited_list(outs[i+1]);
                 }
 
                 if (!q->is_visited(candidate_id)) {
                     q->set_visited(candidate_id);
                     float dist = getDist(candidate_id, query_data);
-                    q->push(candidate_id, dist);
+                    q->push(candidate_id, dist, is_deleted(candidate_id));
 
                     ndc += 1;
                 }
@@ -527,7 +636,7 @@ public:
         auto q = &q0;
         
         float dist = getDist(entry_point, query_data);
-        q->push(entry_point, dist);
+        q->push(entry_point, dist, is_deleted(entry_point));
         q->set_visited(entry_point);
         while (!q->is_empty()) {
             std::pair<float, id_t> current_node_pair = q->get_next_id();
@@ -543,16 +652,15 @@ public:
             // std::cout<<current_node_id<<" "<<candidate_dist<<"\n";
             std::shared_lock <std::shared_mutex> lock(node_locks[current_node_id]);
             auto [outs, sz, st] = getNeighbors(current_node_id);
-            for (int i = st; i <= sz; ++i) {
+            for (int i = st; i < st + sz; ++i) {
                 id_t candidate_id = outs[i];
-                if(i < sz) {
+                if(i < st + sz - 1) {
                     q->prefetch_visited_list(outs[i+1]);
                 }
-
                 if (!q->is_visited(candidate_id)) {
                     q->set_visited(candidate_id);
                     float dist = getDist(candidate_id, query_data);
-                    q->push(candidate_id, dist);
+                    q->push(candidate_id, dist, is_deleted(candidate_id));
 
                     ndc += 1;
                 }
@@ -568,6 +676,7 @@ public:
         double avg_capacity = 0;
 
         std::cout << "current number of elements: " << n << "\n";
+        std::cout << "max number of elements: " << max_elements << "\n";
 
         for(int i = 0; i < n; ++i) {
             avg_outdegree += GET_SZ((uint8_t*)Graph[i].neighbors);

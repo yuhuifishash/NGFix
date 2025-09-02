@@ -6,6 +6,7 @@ using namespace ngfixlib;
 
 int main(int argc, char* argv[])
 {
+    size_t efC = 0, insert_st_id = 0;
     std::unordered_map<std::string, std::string> paths;
     for (int i = 0; i < argc; i++) {
         std::string arg = argv[i];
@@ -15,12 +16,16 @@ int main(int argc, char* argv[])
             paths["train_query_path"] = argv[i + 1];
         if (arg == "--train_gt_path")
             paths["train_gt_path"] = argv[i + 1];
-        if (arg == "--base_graph_path")
-            paths["base_graph_path"] = argv[i + 1];
+        if (arg == "--raw_index_path")
+            paths["raw_index_path"] = argv[i + 1];
         if (arg == "--metric")
             paths["metric"] = argv[i + 1];
         if (arg == "--result_index_path")
             paths["result_index_path"] = argv[i + 1];
+        if (arg == "--efC")
+            efC = std::stoi(argv[i + 1]);
+        if (arg == "--insert_st_id")
+            insert_st_id = std::stoi(argv[i + 1]);
         
     }
 
@@ -30,15 +35,19 @@ int main(int argc, char* argv[])
     std::cout<<"train_query_path: "<<train_query_path<<"\n";
     std::string train_gt_path = paths["train_gt_path"];
     std::cout<<"train_gt_path: "<<train_gt_path<<"\n";
-    std::string base_index_path = paths["base_graph_path"];
-    std::cout<<"base_graph_path: "<<base_index_path<<"\n";
+    std::string base_index_path = paths["raw_index_path"];
+    std::cout<<"raw_index_path: "<<base_index_path<<"\n";
     std::string result_index_path = paths["result_index_path"];
     std::cout<<"result_index_path: "<<result_index_path<<"\n";
     std::string metric_str = paths["metric"];
 
+    std::cout<<"efC: "<<efC<<"\n";
+    std::cout<<"insert_st_id: "<<insert_st_id<<"\n";
 
-    size_t train_number = 0;
+    size_t train_number = 0, base_number = 0;
     size_t train_gt_dim = 0, vecdim = 0;
+
+    auto base_data = LoadData<float>(base_path, base_number, vecdim);
 
     Metric metric;
     if(metric_str == "ip_float") {
@@ -53,15 +62,29 @@ int main(int argc, char* argv[])
 
     auto hnsw_ngfix = new HNSW_NGFix<float>(IP_float, base_index_path);
 
-    std::cout << "HNSW Bottom Layer Information:\n";
+    std::cout << "Raw Index Information:\n";
     hnsw_ngfix->printGraphInfo();
     std::cout << "\n";
 
+    hnsw_ngfix->resize(base_number);
+
     auto start = std::chrono::high_resolution_clock::now();
 
+    // first insert vectors into base graph
+    #pragma omp parallel for schedule(dynamic) num_threads(32)
+    for(int i = insert_st_id; i < base_number; ++i) {
+        if(i % 100000 == 0) {
+            std::cout <<"add base points "<< i <<"\n";
+        }
+        hnsw_ngfix->InsertPoint(i, efC, base_data + i*vecdim);
+    }
+
+    // partial rebuilding r
+    float r = 0.2;
+    hnsw_ngfix->PartialRemoveEdges(r);
     auto train_query_in = getVectorsHead(train_query_path, train_number, vecdim);
     auto train_gt_in = getVectorsHead(train_gt_path, train_number, train_gt_dim); // train_gt_dim >= S
-
+    train_number = train_number*r;
     #pragma omp parallel for schedule(dynamic) num_threads(32)
     for(int i = 0; i < train_number; ++i) {
         if(i % 100000 == 0) {
@@ -79,9 +102,9 @@ int main(int argc, char* argv[])
     
     auto end = std::chrono::high_resolution_clock::now();
     auto diff = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-    std::cout << "NGFix latency: " << diff << " ms.\n\n";
+    std::cout << "Insertion latency: " << diff << " ms.\n\n";
 
-    std::cout << "HNSW_NGFix Information:\n";
+    std::cout << "Index (after insertion) Information:\n";
     hnsw_ngfix->printGraphInfo();
     std::cout << "\n";
 

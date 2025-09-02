@@ -34,7 +34,7 @@ int main(int argc, char* argv[])
     std::cout<<"result_path: "<<result_path<<"\n";
     std::string metric_str = paths["metric"];
 
-    size_t test_number = 0, base_number = 0;
+    size_t test_number = 0;
     size_t test_gt_dim = 0, vecdim = 0;
 
     auto test_query = LoadData<float>(test_query_path, test_number, vecdim);
@@ -51,8 +51,19 @@ int main(int argc, char* argv[])
     }
 
     auto hnsw_ngfix = new HNSW_NGFix<float>(metric, index_path);
+    std::cout << "Raw Index Information:\n";
     hnsw_ngfix->printGraphInfo();
+    std::cout << "\n";
 
+    for(int i = 8000000; i < hnsw_ngfix->max_elements; ++i) {
+        hnsw_ngfix->DeletePointByFlag(i);
+    }
+
+
+    std::cout << "Index (after deletion) Information:\n";
+    hnsw_ngfix->printGraphInfo();
+    std::cout << "\n";
+    
     std::ofstream output;
     output.open(result_path);
     TestQueries<float>(output, test_query, test_gt, test_number, k, test_gt_dim, vecdim, hnsw_ngfix);

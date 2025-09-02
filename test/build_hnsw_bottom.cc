@@ -49,17 +49,16 @@ int main(int argc, char* argv[])
     }
     
     auto start = std::chrono::high_resolution_clock::now();
-    // auto hnsw_ngfix = new HNSW_NGFix<float>(IP_float, vecdim, base_number, base_data, "/SSD/models/hnsw/webvid_bottom_layer");
-    auto hnsw_ngfix = new HNSW_NGFix<float>(metric, vecdim, base_number, base_data, M, MEX);
-    hnsw_ngfix->InsertPoint(0, efC);
+
+    auto hnsw_ngfix = new HNSW_NGFix<float>(metric, vecdim, base_number, M, MEX);
+    hnsw_ngfix->InsertPoint(0, efC, base_data);
 
     #pragma omp parallel for schedule(dynamic) num_threads(32)
     for(int i = 1; i < base_number; ++i) {
-        // printf("\n======================== %d\n",i);
         if(i % 100000 == 0) {
             std::cout <<"add base points "<< i <<"\n";
         }
-        hnsw_ngfix->InsertPoint(i, efC);
+        hnsw_ngfix->InsertPoint(i, efC, base_data + i*vecdim);
     }
 
     auto end = std::chrono::high_resolution_clock::now();

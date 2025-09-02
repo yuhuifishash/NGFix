@@ -12,7 +12,7 @@ class SearchList
 {
 public:
     virtual float get_dist_bound() = 0;
-    virtual void push(id_t id, float dist) = 0;
+    virtual void push(id_t id, float dist, bool is_delete) = 0;
     virtual std::pair<float, id_t> get_next_id() = 0; // also pop
     virtual bool is_empty() = 0;
     virtual std::vector<std::pair<float, id_t> > get_result(size_t k) = 0;
@@ -52,13 +52,15 @@ public:
         return top_candidates.top().first;
     }
 
-    virtual void push(id_t candidate_id, float dist) {
+    virtual void push(id_t candidate_id, float dist, bool is_delete) {
         bool flag_consider_candidate;
         flag_consider_candidate = top_candidates.size() < L || get_dist_bound() > dist;
 
         if (flag_consider_candidate) {
             candidate_set.emplace(-dist, candidate_id);
-            top_candidates.emplace(dist, candidate_id);
+            if(!is_delete) {
+                top_candidates.emplace(dist, candidate_id);
+            }
             bool flag_remove_extra = false;
             flag_remove_extra = top_candidates.size() > L;
             while (flag_remove_extra) {
@@ -207,9 +209,12 @@ public:
         return insert_loc;
     }
 
-    void push(id_t id, float dist) {
+    void push(id_t id, float dist, bool is_delete) {
         if(dist > get_dist_bound()) {
             return;
+        }
+        if(is_delete) {
+            throw std::runtime_error("Error: Search_Array does not support deleting by flag.");
         }
         size_t insert_idx = __push(id, dist);
         if(L_start_idx > insert_idx) {
@@ -364,13 +369,15 @@ public:
         return top_candidates.top().first;
     }
 
-    virtual void push(id_t candidate_id, float dist) {
+    virtual void push(id_t candidate_id, float dist, bool is_delete) {
         bool flag_consider_candidate;
         flag_consider_candidate = top_candidates.size() < L || get_dist_bound() > dist;
 
         if (flag_consider_candidate) {
             candidate_set.push({-dist, candidate_id});
-            top_candidates.push({dist, candidate_id});
+            if(!is_delete) {
+                top_candidates.push({dist, candidate_id});
+            }
             bool flag_remove_extra = false;
             flag_remove_extra = top_candidates.size() > L;
             while (flag_remove_extra) {
