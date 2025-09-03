@@ -8,6 +8,7 @@ namespace ngfixlib {
 class L2Space_float : public Space<float>
 {
 public:
+    //symqglib
     virtual float dist_func(const float* vec0, const float* vec1) {
         float result = 0;
         size_t mul16 = dim - (dim & 0b1111);

@@ -18,8 +18,8 @@ int main(int argc, char* argv[])
             paths["metric"] = argv[i + 1];
         if (arg == "--index_path")
             paths["index_path"] = argv[i + 1];
-        if (arg == "--result_path")
-            paths["result_path"] = argv[i + 1];
+        if (arg == "--result_index_path")
+            paths["result_index_path"] = argv[i + 1];
         if (arg == "--K")
             k = std::stoi(argv[i + 1]);
     }
@@ -30,8 +30,8 @@ int main(int argc, char* argv[])
     std::cout<<"test_gt_path: "<<test_gt_path<<"\n";
     std::string index_path = paths["index_path"];
     std::cout<<"index_path: "<<index_path<<"\n";
-    std::string result_path = paths["result_path"];
-    std::cout<<"result_path: "<<result_path<<"\n";
+    std::string result_index_path = paths["result_index_path"];
+    std::cout<<"result_index_path: "<<result_index_path<<"\n";
     std::string metric_str = paths["metric"];
 
     size_t test_number = 0;
@@ -55,18 +55,23 @@ int main(int argc, char* argv[])
     hnsw_ngfix->printGraphInfo();
     std::cout << "\n";
 
+
+    auto start = std::chrono::high_resolution_clock::now();
+
     for(int i = 8000000; i < hnsw_ngfix->max_elements; ++i) {
         hnsw_ngfix->DeletePointByFlag(i);
     }
+    hnsw_ngfix->DeleteAllFlagPointsByNGFix();
 
-
+    auto end = std::chrono::high_resolution_clock::now();
+    auto diff = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+    std::cout << "Deletion latency: " << diff << " ms.\n\n";
+    
     std::cout << "Index (after deletion) Information:\n";
     hnsw_ngfix->printGraphInfo();
     std::cout << "\n";
     
-    std::ofstream output;
-    output.open(result_path);
-    TestQueries<float>(output, test_query, test_gt, test_number, k, test_gt_dim, vecdim, hnsw_ngfix);
+    hnsw_ngfix->StoreIndex(result_index_path);
 
     return 0;
 }

@@ -291,20 +291,21 @@ public:
                 uint8_t base_sz = sz - ngfix_sz;
 
                 std::vector<id_t> new_neighbors;
-                for(int i = ngfix_capacity - ngfix_sz; i < ngfix_capacity; ++i) {
-                    if(ids.find(outs[i + 1]) == ids.end()) { // not deleted
-                        new_neighbors.push_back(outs[i + 1]);
+                for(int j = ngfix_capacity - ngfix_sz; j < ngfix_capacity; ++j) {
+                    if(ids.find(outs[j + 1]) == ids.end()) { // not deleted
+                        new_neighbors.push_back(outs[j + 1]);
                     }
                 }
-                Graph[i].replace_ngfix_neighbors(new_neighbors);
-                new_neighbors.clear();
 
-                for(int i = ngfix_capacity; i < ngfix_capacity + base_sz; ++i) {
-                    if(ids.find(outs[i + 1]) == ids.end()) { // not deleted
-                        new_neighbors.push_back(outs[i + 1]);
+                std::vector<std::pair<float, id_t> > new_neighbors2;
+                for(int j = ngfix_capacity; j < ngfix_capacity + base_sz; ++j) {
+                    if(ids.find(outs[j + 1]) == ids.end()) { // not deleted
+                        new_neighbors2.push_back({0, outs[j + 1]});
                     }
                 }
-                Graph[i].replace_base_graph_neighbors(new_neighbors);
+
+                Graph[i].replace_ngfix_neighbors(new_neighbors); 
+                Graph[i].replace_base_graph_neighbors(new_neighbors2);
             }
         }
 
@@ -315,6 +316,9 @@ public:
 
         #pragma omp parallel for schedule(dynamic) num_threads(Threads)
         for(int i = 0; i < v_ids.size(); ++i) {
+            if(i % 100000 == 0) {
+                std::cout<<"delete number "<<i<<"\n";
+            }
             int* gt = new int[500];
             AKNNGroundTruth(getData(v_ids[i]), gt, 500, efC_delete);
             NGFix(getData(v_ids[i]), gt, 100, 100);
@@ -334,7 +338,7 @@ public:
             }
         }
     }
-
+    
     std::unordered_map<id_t, std::vector<id_t> > ComputeGq(int* gt, size_t S) 
     {
         std::unordered_map<id_t, std::vector<id_t> > G;
