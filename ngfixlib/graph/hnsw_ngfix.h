@@ -7,11 +7,14 @@
 #include <unordered_set>
 #include <boost/functional/hash.hpp>
 #include <map>
+#include <type_traits>
 #include "node.h"
-#include "../utils/search_list.h"
-#include "../utils/visited_list.h"
-#include "../metric/l2.h"
-#include "../metric/ip.h"
+#include "ngfixlib/utils/search_list.h"
+#include "ngfixlib/utils/visited_list.h"
+#include "ngfixlib/metric/l2.h"
+#include "ngfixlib/metric/ip.h"
+#include "ngfixlib/metric/rabitq.h"
+#include "rabitqlib/quantization/rabitq.hpp"
 
 static const size_t MAX_Nq = 500;
 static const size_t MAX_S = 500;
@@ -22,14 +25,19 @@ enum Metric{
     L2_float = 1,
     IP_float = 2,
     L2_uint8 = 3,
-    IP_uint8 = 4
+    IP_uint8 = 4,
+    L2_RaBitQ = 5,
+    IP_RaBitQ = 6,
+    L2_RaBitQ_b8_q8 = 7,
+    IP_RaBitQ_b8_q8 = 8,
+    IP_RaBitQ_b8_q32 = 9,
 };
 
 template<typename T>
 class HNSW_NGFix
 {
 private:
-    // lock when updating neighbors
+    // lock when updating neighbors 
     std::vector<std::shared_mutex> node_locks;
     size_t M0 = 0; // out-degree of base layer  
     size_t M = 0;  // used for insertion
@@ -39,6 +47,7 @@ public:
     std::vector<node> Graph;
     char* vecdata;
     Space<T>* space;
+    Space<T>* query_space; // used when q_bits != b_bits
     size_t dim;
     size_t entry_point = 0;
     size_t max_elements;
@@ -56,13 +65,29 @@ public:
         this->dim = dimension;
         this->max_elements = max_elements;
         this->size_per_element = dim*sizeof(T) + 1; // 8 bits for delete flag
-        if (metric == L2_float) {
-            space = new L2Space_float(dim);
-        } else if(metric == IP_float) {
-            space = new IPSpace_float(dim);
-        } else {
-            throw std::runtime_error("Error: Unsupported metric type.");
-        }
+
+        if constexpr (std::is_same_v<T, float>) {
+            if (metric == L2_float) {
+                space = new L2Space_float(dim);
+                query_space = new L2Space_float(dim);
+            } else if(metric == IP_float) {
+                space = new IPSpace_float(dim);
+                query_space = new IPSpace_float(dim);
+            } else {
+                throw std::runtime_error("Error: Unsupported metric type.");
+            }
+        } else if constexpr (std::is_same_v<T, uint8_t>) {
+            if(metric == IP_RaBitQ_b8_q8) {
+                space = new IPSpace_RaBitQ(dim, 8, 8);
+                query_space = new IPSpace_RaBitQ(dim, 8, 8);
+            } else if(metric == L2_RaBitQ_b8_q8) {
+                space = new L2Space_RaBitQ(dim, 8, 8);
+                query_space = new L2Space_RaBitQ(dim, 8, 8);
+            } else {
+                throw std::runtime_error("Error: Unsupported metric type.");
+            }
+        }   
+        
         vecdata = new char[size_per_element*max_elements];
         Graph.resize(this->max_elements);
         visited_list_pool_ = std::shared_ptr<VisitedListPool>(new VisitedListPool(1, this->max_elements));
@@ -78,14 +103,27 @@ public:
         input.read((char*)&entry_point, sizeof(entry_point));
         input.read((char*)&dim, sizeof(dim));
         input.read((char*)&max_elements, sizeof(max_elements));
-
         this->size_per_element = dim*sizeof(T) + 1; // 8 bits for delete flag
-        if (metric == L2_float) {
-            space = new L2Space_float(dim);
-        } else if(metric == IP_float) {
-            space = new IPSpace_float(dim);
-        } else {
-            throw std::runtime_error("Error: Unsupported metric type.");
+        if constexpr (std::is_same_v<T, float>) {
+            if (metric == L2_float) {
+                space = new L2Space_float(dim);
+                query_space = new L2Space_float(dim);
+            } else if(metric == IP_float) {
+                space = new IPSpace_float(dim);
+                query_space = new IPSpace_float(dim);
+            } else {
+                throw std::runtime_error("Error: Unsupported metric type.");
+            }
+        } else if constexpr (std::is_same_v<T, uint8_t>) {
+            if(metric == IP_RaBitQ_b8_q8) {
+                space = new IPSpace_RaBitQ(dim, 8, 8);
+                query_space = new IPSpace_RaBitQ(dim, 8, 8);
+            } else if(metric == L2_RaBitQ_b8_q8) {
+                space = new L2Space_RaBitQ(dim, 8, 8);
+                query_space = new L2Space_RaBitQ(dim, 8, 8);
+            } else {
+                throw std::runtime_error("Error: Unsupported metric type.");
+            }
         }
         vecdata = new char[size_per_element*max_elements];
         input.read(vecdata, max_elements*size_per_element);
@@ -100,7 +138,36 @@ public:
     }
 
     ~HNSW_NGFix() {
+        delete []vecdata;
         delete space;
+        delete query_space;
+    }
+
+    void set_new_metric(Metric metric) {
+        if constexpr (std::is_same_v<T, float>) {
+            if (metric == L2_float) {
+                space = new L2Space_float(dim);
+                query_space = new L2Space_float(dim);
+            } else if(metric == IP_float) {
+                space = new IPSpace_float(dim);
+                query_space = new IPSpace_float(dim);
+            } else {
+                throw std::runtime_error("Error: Unsupported metric type.");
+            }
+        } else if constexpr (std::is_same_v<T, uint8_t>) {
+            if(metric == IP_RaBitQ_b8_q8) {
+                space = new IPSpace_RaBitQ(dim, 8, 8);
+                query_space = new IPSpace_RaBitQ(dim, 8, 8);
+            } else if(metric == IP_RaBitQ_b8_q32) {
+                space = new IPSpace_RaBitQ(dim, 8, 32);
+                query_space = new IPSpace_RaBitQ(dim, 8, 32);
+            } else if(metric == L2_RaBitQ_b8_q8) {
+                space = new L2Space_RaBitQ(dim, 8, 8);
+                query_space = new L2Space_RaBitQ(dim, 8, 8);
+            } else {
+                throw std::runtime_error("Error: Unsupported metric type.");
+            }
+        }
     }
 
     void resize(size_t new_max_elements) {
@@ -159,8 +226,12 @@ public:
         return space->dist_func(getData(u), getData(v));
     }
 
-    float getDist(id_t u, float* query_data) {
-        return space->dist_func(getData(u), query_data);
+    float getDist(id_t u, T* data) {
+        return space->dist_func(getData(u), data);
+    }
+
+    float getQueryDist(id_t u, T* query_data) {
+        return query_space->dist_func(getData(u), query_data);
     }
 
 
@@ -194,7 +265,7 @@ public:
 
     void HNSWBottomLayerInsertion(T* data, id_t cur_id, size_t efC) {
         size_t NDC = 0;
-        auto res = searchKnnBaseGraph(data, efC, efC, NDC);
+        auto res = searchKnnBaseGraphConstruction(data, efC, efC, NDC);
         auto neighbors = getNeighborsByHeuristic(res, M);
         
         { // add edge (cur_id, neighbor_id)
@@ -415,7 +486,7 @@ public:
     auto getDefectsFixingEdges(
         std::bitset<MAX_Nq> f[],
         std::vector<std::vector<uint16_t> >& H,
-        float* query, int* gt, size_t Nq, size_t Kh) {
+        T* query, int* gt, size_t Nq, size_t Kh) {
         
         std::unordered_map<id_t, std::vector<std::pair<id_t, uint16_t> > > new_edges;
 
@@ -470,7 +541,6 @@ public:
                 Graph[u].add_ngfix_neighbors(v, eh, MEX);
             }
         }
-        
     }
 
     // return S = {v | delta(v, q) < delta(u, q)}
@@ -481,7 +551,7 @@ public:
         auto q = &q0;
         
         std::vector<id_t> res;
-        float dist_u_q = getDist(u, query_data);
+        float dist_u_q = getQueryDist(u, query_data);
         q->push(u, dist_u_q, is_deleted(u));
         q->set_visited(u);
         while (!q->is_empty()) {
@@ -505,7 +575,7 @@ public:
                 }
                 if (!q->is_visited(candidate_id)) {
                     q->set_visited(candidate_id);
-                    float dist = getDist(candidate_id, query_data);
+                    float dist = getQueryDist(candidate_id, query_data);
                     if(dist < dist_u_q && !is_deleted(candidate_id)) {
                         res.push_back(candidate_id);
                     }
@@ -529,7 +599,7 @@ public:
         
         id_t ANN = result[0].second;
         float d1 = result[0].first;
-        float d2 = getDist(gt[Nq - 1], query);
+        float d2 = getQueryDist(gt[Nq - 1], query);
         if(d1 > d2) { // can not reach NG_{Nq,q}
             auto res = searchCloserPoints(query, efC, ANN, ndc);
             
@@ -588,7 +658,11 @@ public:
         delete []centroid;
     }
 
-    std::vector<std::pair<float, id_t> > searchKnnBaseGraph(T* query_data, size_t k, size_t ef, size_t& ndc) {
+    // only used for construction (query_data.bits == base_data.bits)
+    std::vector<std::pair<float, id_t> > searchKnnBaseGraphConstruction(T* query_data, size_t k, size_t ef, size_t& ndc) {
+        if(ef < k) {
+            throw std::runtime_error("Error: efs < k.");
+        }
         // Search_PriorityQueue q0(ef, visited_list_pool_);
         // Search_Array q0(ef, visited_list_pool_);
         Search_QuadHeap q0(ef, visited_list_pool_);
@@ -634,15 +708,25 @@ public:
     }
 
     std::vector<std::pair<float, id_t> > searchKnn(T* query_data, size_t k, size_t ef, size_t& ndc) {
+        size_t hop_limit = std::numeric_limits<int>::max();
+        size_t hop = 0;
+        if(ef < k) {
+            hop_limit = ef;
+            ef = k;
+        }
+
         // Search_PriorityQueue q0(ef, visited_list_pool_);
         // Search_Array q0(ef, visited_list_pool_);
         Search_QuadHeap q0(ef, visited_list_pool_);
         auto q = &q0;
         
-        float dist = getDist(entry_point, query_data);
+        float dist = getQueryDist(entry_point, query_data);
         q->push(entry_point, dist, is_deleted(entry_point));
         q->set_visited(entry_point);
         while (!q->is_empty()) {
+            if (hop > hop_limit) {
+                break;
+            }
             std::pair<float, id_t> current_node_pair = q->get_next_id();
             id_t current_node_id = current_node_pair.second;
 
@@ -653,6 +737,7 @@ public:
             if (flag_stop_search) {
                 break;
             }
+            hop += 1;
             // std::cout<<current_node_id<<" "<<candidate_dist<<"\n";
             std::shared_lock <std::shared_mutex> lock(node_locks[current_node_id]);
             auto [outs, sz, st] = getNeighbors(current_node_id);
@@ -663,7 +748,7 @@ public:
                 }
                 if (!q->is_visited(candidate_id)) {
                     q->set_visited(candidate_id);
-                    float dist = getDist(candidate_id, query_data);
+                    float dist = getQueryDist(candidate_id, query_data);
                     q->push(candidate_id, dist, is_deleted(candidate_id));
 
                     ndc += 1;

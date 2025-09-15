@@ -130,7 +130,7 @@ public:
         }
         sum128 = _mm_hadd_ps(sum128, sum128);
         sum128 = _mm_hadd_ps(sum128, sum128);
-        sum += _mm_cvtss_f32(sum128); 
+        sum += _mm_cvtss_f32(sum128);  
         
         return 1 - sum;
     }

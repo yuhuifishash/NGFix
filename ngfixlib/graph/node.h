@@ -71,6 +71,13 @@ struct node
         SET_CAPACITY((uint8_t*)neighbors, CAPACITY_INC);
     }
 
+    ~node() {
+        delete []neighbors;
+        if(ehs != nullptr) {
+            delete []ehs;
+        }
+    }
+
     id_t* get_neighbors() {
         return neighbors;
     }
@@ -239,7 +246,6 @@ struct node
                 if(tmp2 != nullptr) {
                     delete []tmp2;
                 }
-
             } else {
                 ehs[ngfix_capacity - ngfix_sz] = eh;
                 neighbors[ngfix_capacity - ngfix_sz + 1] = v;

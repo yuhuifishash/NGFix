@@ -1,4 +1,4 @@
-#include "../ngfixlib/graph/hnsw_ngfix.h"
+#include "ngfixlib/graph/hnsw_ngfix.h"
 #include "tools/data_loader.h"
 #include "tools/result_evaluation.h"
 #include <iostream>
@@ -32,8 +32,8 @@ int main(int argc, char* argv[])
 
     std::cout<<"M:"<<M<<"  efC:"<<efC<<"  MEX:"<<MEX<<"\n";
 
-    size_t train_number = 0, base_number = 0;
-    size_t train_gt_d = 0, vecdim = 0;
+    size_t base_number = 0;
+    size_t vecdim = 0;
 
     auto base_data = LoadData<float>(base_path, base_number, vecdim);
 

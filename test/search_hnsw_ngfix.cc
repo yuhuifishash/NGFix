@@ -1,4 +1,4 @@
-#include "../ngfixlib/graph/hnsw_ngfix.h"
+#include "ngfixlib/graph/hnsw_ngfix.h"
 #include "tools/data_loader.h"
 #include "tools/result_evaluation.h"
 #include <iostream>

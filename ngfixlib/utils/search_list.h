@@ -1,5 +1,5 @@
 #pragma once
-#include "../ngfixlib/graph/node.h"
+#include "ngfixlib/graph/node.h"
 #include "visited_list.h"
 #include <queue>
 #include <algorithm>

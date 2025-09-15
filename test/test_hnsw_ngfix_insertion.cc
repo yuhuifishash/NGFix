@@ -1,4 +1,4 @@
-#include "../ngfixlib/graph/hnsw_ngfix.h"
+#include "ngfixlib/graph/hnsw_ngfix.h"
 #include "tools/data_loader.h"
 #include "tools/result_evaluation.h"
 #include <iostream>
@@ -60,7 +60,7 @@ int main(int argc, char* argv[])
         throw std::runtime_error("Error: Unsupported metric type.");
     }
 
-    auto hnsw_ngfix = new HNSW_NGFix<float>(IP_float, base_index_path);
+    auto hnsw_ngfix = new HNSW_NGFix<float>(metric, base_index_path);
 
     std::cout << "Raw Index Information:\n";
     hnsw_ngfix->printGraphInfo();

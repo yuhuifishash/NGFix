@@ -14,7 +14,7 @@ MEX=48
 M=16
 efC=500
 efC_AKNN=1500
-./build_hnsw_ngfix_aknn \
+./test/build_hnsw_ngfix_aknn \
 --train_query_path /SSD/MainSearch/train.1M.fbin \
 --train_gt_path /SSD/MainSearch/gt.train.1M.bin \
 --base_graph_path /SSD/models/NGFix/mainse_HNSWBottom_M${M}_efC${efC}_MEX${MEX}.index \
