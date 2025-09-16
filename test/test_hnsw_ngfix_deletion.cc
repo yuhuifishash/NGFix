@@ -10,10 +10,6 @@ int main(int argc, char* argv[])
     std::unordered_map<std::string, std::string> paths;
     for (int i = 0; i < argc; i++) {
         std::string arg = argv[i];
-        if (arg == "--test_query_path")
-            paths["test_query_path"] = argv[i + 1];
-        if (arg == "--test_gt_path")
-            paths["test_gt_path"] = argv[i + 1];
         if (arg == "--metric")
             paths["metric"] = argv[i + 1];
         if (arg == "--index_path")
@@ -34,11 +30,6 @@ int main(int argc, char* argv[])
     std::cout<<"result_index_path: "<<result_index_path<<"\n";
     std::string metric_str = paths["metric"];
 
-    size_t test_number = 0;
-    size_t test_gt_dim = 0, vecdim = 0;
-
-    auto test_query = LoadData<float>(test_query_path, test_number, vecdim);
-    auto test_gt = LoadData<int>(test_gt_path, test_number, test_gt_dim);
     Metric metric;
     if(metric_str == "ip_float") {
         std::cout<<"metric ip\n";
@@ -58,7 +49,7 @@ int main(int argc, char* argv[])
 
     auto start = std::chrono::high_resolution_clock::now();
 
-    for(int i = 8000000; i < hnsw_ngfix->max_elements; ++i) {
+    for(int i = hnsw_ngfix->max_elements*0.8; i < hnsw_ngfix->max_elements; ++i) {
         hnsw_ngfix->DeletePointByFlag(i);
     }
     hnsw_ngfix->DeleteAllFlagPointsByNGFix();
