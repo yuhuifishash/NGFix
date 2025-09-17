@@ -9,8 +9,6 @@ int main(int argc, char* argv[])
     std::unordered_map<std::string, std::string> paths;
     for (int i = 0; i < argc; i++) {
         std::string arg = argv[i];
-        if (arg == "--base_data_path")
-            paths["base_data_path"] = argv[i + 1];
         if (arg == "--train_query_path")
             paths["train_query_path"] = argv[i + 1];
         if (arg == "--train_gt_path")
@@ -24,8 +22,6 @@ int main(int argc, char* argv[])
         
     }
 
-    std::string base_path = paths["base_data_path"];
-    std::cout<<"base_data_path: "<<base_path<<"\n";
     std::string train_query_path = paths["train_query_path"];
     std::cout<<"train_query_path: "<<train_query_path<<"\n";
     std::string train_gt_path = paths["train_gt_path"];
