@@ -4,7 +4,7 @@
 ## Introduction
 HNSW-NGFix* is a graph-based approximate nearest neighbor search (ANNS) algorithm. It uses historical queries to fix defective regions in the graph, and can particularly improve the performance of the graph index on Out-of-Distribution (OOD) queries. 
 
-We propose Escape Hardness, a metric to evaluate the quality of the graph structure around the query. Then we divide the graph search into two stages and dynamically identify and fix defective graph regions in each stage. (1) **From the entry point to the vicinity of the query**. We propose Reachability Fixing (RF), which enhances the navigability of some key nodes. (2) **Searching within the vicinity of the query**. We propose Neighboring Graph Defects Fixing (NGFix) to improve graph connectivity in regions where queries are densely distributed. 
+We propose Escape Hardness, a metric to evaluate the quality of the graph structure around the query. Then we divide the graph search into two stages and dynamically identify and fix defective graph regions in each stage. (1) **From the entry point to the vicinity of the query**. We propose Reachability Fixing (RFix), which enhances the navigability of some key nodes. (2) **Searching within the vicinity of the query**. We propose Neighboring Graph Defects Fixing (NGFix) to improve graph connectivity in regions where queries are densely distributed. 
 
 
 ## Prerequisites
