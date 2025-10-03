@@ -30,7 +30,7 @@ make -j
 
 We support the *.fbin and *.ibin formats. It starts with two 32-bit integers (number of vectors and dimension), followed by all vectors stored sequentially. You can refer to **test/tools/data_loader.h** for more details.
 
-The ground truth is stored as *.ibin formats. The $i$-th vector in the file represents the ground truth of the $i$-th query (i.e., the $k$ NN of $i$-th query). It is required that the vector dimension $k \ge MaxS$.
+The ground truth is stored as *.ibin formats. The $i$-th vector in the file represents the ground truth of the $i$-th query (i.e., the $k$ NN of $i$-th query). It is required that the vector dimension $k \ge MaxS$ (default 200).
 
 
 #### Compute Exact KNN (Ground Truth)

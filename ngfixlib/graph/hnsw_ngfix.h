@@ -16,8 +16,8 @@
 #include "ngfixlib/metric/rabitq.h"
 #include "rabitqlib/quantization/rabitq.hpp"
 
-static const size_t MAX_Nq = 500;
-static const size_t MAX_S = 500;
+static const size_t MAX_Nq = 200;
+static const size_t MAX_S = 200;
 
 namespace ngfixlib {
 
