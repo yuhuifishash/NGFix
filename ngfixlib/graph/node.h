@@ -15,7 +15,7 @@ namespace ngfixlib {
 typedef unsigned int id_t;
 const int CAPACITY_INC = 4;
 const int EH_INF = std::numeric_limits<uint16_t>::max();
-const float INF_RATIO = 0.2;
+const float INF_RATIO = 0.5;
 
 
 uint8_t GET_CAPACITY(uint8_t* array) {
@@ -212,7 +212,7 @@ struct node
             // Too many long edges (i.e., edges with inf EH) will improve performance when L >= MAX_S (high recall),
             // but will decrease the search performance when L is low (e.g. moderate recall or low recall).
             // Therefore, we limit the number of edges with inf EH.
-            if(eh == EH_INF && inf_cnt >= (float)MEX * INF_RATIO) {return;}
+            // if(eh == EH_INF && inf_cnt >= (float)MEX * INF_RATIO) {return;}
             if(eh < min_eh) {return;}
             ehs[min_idx] = eh;
             neighbors[min_idx + 1] = v;

@@ -526,7 +526,7 @@ public:
         if(Nq > MAX_Nq) {
             throw std::runtime_error("Error: Nq >= MAX_Nq.");
         }
-        auto H = CalculateHardness(gt, Nq, Kh, std::min(MAX_S, 3*Nq));
+        auto H = CalculateHardness(gt, Nq, Kh, std::min(MAX_S, 2*Nq));
         std::bitset<MAX_Nq> f[Nq];
         for(int i = 0; i < Nq; ++i){
             for(int j = 0; j < Nq; ++j){

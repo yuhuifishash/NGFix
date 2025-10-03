@@ -9,8 +9,11 @@ We propose Escape Hardness, a metric to evaluate the quality of the graph struct
 
 ## Prerequisites
 AVX-512
+
 GCC 10.1.0+ with OpenMP
+
 CMAKE 3.0+
+
 BOOST 1.55+
 
 ## Compiler
@@ -68,13 +71,12 @@ Since the MainSearch dataset comes from a real production environment, there are
 
 #### Test Deletion
 ```bash
-# first need to build a HNSW-NGFix*
 ./test_hnsw_ngfix_deletion.sh
 ```
 
 #### Parameters
 
-Using the default parameters provided in the script can achieve good performance on most datasets, while keeping the index construction overhead low.
+Using the default parameters provided in the scripts and codes can achieve good performance on most datasets, while keeping the index construction overhead low.
 
 ## Other Optimizations
 
@@ -82,7 +84,7 @@ To improve performance in real-world scenarios, we provide the option of combini
 
 #### Test HNSW-NGFix* with RaBitQ
 ```bash
-./test_hnsw_bottom_rabitq.sh
+./build_hnsw_bottom_rabitq.sh
 ./build_hnsw_ngfix_rabitq.sh
 ./search_hnsw_ngfix_rabitq.sh
 ```
