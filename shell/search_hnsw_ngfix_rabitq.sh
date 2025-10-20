@@ -7,7 +7,7 @@ taskset -c 1 test/search_hnsw_ngfix_rabitq \
 --test_query_path /SSD/Text-to-Image/query.10k.fbin \
 --test_gt_path /SSD/Text-to-Image/gt.10K_10M.bin \
 --metric ip_rabitq --K 100 --result_path /home/hzy/NGFix/result/test_t2i.csv \
---index_path /SSD/models/NGFix/t2i10M_HNSWBottomRaBitQ_M${M}_efC${efC}_MEX${MEX}_${bits}bits.index \
+--index_path /SSD/models/NGFix/t2i10M_HNSWNGFixRaBitQ_M${M}_efC${efC}_MEX${MEX}_${bits}bits.index \
 
 # MEX=48
 # M=16

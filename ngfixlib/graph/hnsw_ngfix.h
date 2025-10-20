@@ -86,6 +86,8 @@ public:
             } else {
                 throw std::runtime_error("Error: Unsupported metric type.");
             }
+        } else {
+            throw std::runtime_error("Error: Unsupported metric type.");
         }   
         
         vecdata = new char[size_per_element*max_elements];
@@ -124,7 +126,10 @@ public:
             } else {
                 throw std::runtime_error("Error: Unsupported metric type.");
             }
+        } else {
+            throw std::runtime_error("Error: Unsupported metric type.");
         }
+
         vecdata = new char[size_per_element*max_elements];
         input.read(vecdata, max_elements*size_per_element);
 
@@ -144,6 +149,8 @@ public:
     }
 
     void set_new_metric(Metric metric) {
+        delete space;
+        delete query_space;
         if constexpr (std::is_same_v<T, float>) {
             if (metric == L2_float) {
                 space = new L2Space_float(dim);
@@ -159,14 +166,16 @@ public:
                 space = new IPSpace_RaBitQ(dim, 8, 8);
                 query_space = new IPSpace_RaBitQ(dim, 8, 8);
             } else if(metric == IP_RaBitQ_b8_q32) {
-                space = new IPSpace_RaBitQ(dim, 8, 32);
-                query_space = new IPSpace_RaBitQ(dim, 8, 32);
+                space = new IPSpace_RaBitQ(dim, 8, 8);
+                query_space = new IPSpace_RaBitQ(dim, 8, 32); // only using 32 bits for querying and fixing
             } else if(metric == L2_RaBitQ_b8_q8) {
                 space = new L2Space_RaBitQ(dim, 8, 8);
                 query_space = new L2Space_RaBitQ(dim, 8, 8);
             } else {
                 throw std::runtime_error("Error: Unsupported metric type.");
             }
+        } else {
+            throw std::runtime_error("Error: Unsupported metric type.");
         }
     }
 
@@ -466,6 +475,11 @@ public:
 
         for(int h = 0; h < S; ++h){
             for(int i = 0; i < S; ++i){
+                /*
+                    for(int j = 0; j < S; ++j) {
+                        f[i][j] = f[i][h] | f[h][j]
+                    }
+                */
                 auto last = f[i];
                 if(f[i][h]){
                     f[i] |= f[h];
@@ -474,7 +488,7 @@ public:
                 if(i < Nq && last.count() > 0){
                     for(int j = 0; j < Nq; ++j){
                         if(last[j] == 1){
-                            H[i][j] = h;
+                            H[i][j] = std::max(std::max(i,j), h);
                         }
                     }
                 }
@@ -630,6 +644,7 @@ public:
     }
 
     // set ep to centroid
+    // TODO(): now ep is always 0 when using rabitq
     void SetEntryPoint() {
         T* centroid = new T[dim];
         memset(centroid, 0, sizeof(T)*dim);
