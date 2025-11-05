@@ -74,7 +74,7 @@ RobustVamana的解决方案非常简单，就是将 $ q_h $ 直接添加到图�
 
 我们可以将上述的搜索难度用公式表达为：
 
- $  $  EH(u,v,q,G) = \underset {p \in P(u,v,G)}{min} \underset {x \in p}{max} F_{x,q} $  $ 
+$$  EH(u,v,q,G) = \underset {p \in P(u,v,G)}{min} \underset {x \in p}{max} F_{x,q} $$ 
 
 其中 $ EH(u,v,q,G) $ 表示对于查询 $ q $ ，在图索引 $ G $ 中，从 $ u $ 搜到 $ v $ 的困难程度。 $ P(u,v,G) $ 表示 $ G $ 中 $ u $ 到 $ v $ 的所有路径集合， $ F_{x,q} $ 表示 $ x $ 是 $ q $ 的第 $ F_{x,q} $ 个近邻。
 
@@ -82,7 +82,7 @@ RobustVamana的解决方案非常简单，就是将 $ q_h $ 直接添加到图�
 
 根据上述定理，一个显然的想法就是让历史查询的所有近邻间的 $ EH $ 都较低。我们先定义当 $ EH(u,v,q,G) \le K_h $ 时， $ u $ 到达 $ v $ 是容易的， $ K_h $ 是一个自定义的参数。同时我们定义 $ N_q $ 为需要考虑的近邻数量，那么我们的目标如下：
 
- $  $ \forall i, \forall j, 1 \le i < j \le N_q, EH(N_{i,q},N_{j,q},q,G) \le K_h $  $ 
+$$ \forall i, \forall j, 1 \le i < j \le N_q, EH(N_{i,q},N_{j,q},q,G) \le K_h $$
 
 我们考虑一个新的图 $ NG_{N_q,q} $ ，边 $ (u,v) \in NG_{N_q,q} $ 当且仅当： $ EH(u,v,q,G) \le K_h $ 且 $ u $ 和 $ v $ 是 $ q $ 的前 $ N_q $ 个近邻。我们在 $ NG_{N_q,q} $ 中添加边，使得 $ NG_{N_q,q} $ 强连通，并将在 $ NG_{N_q,q} $ 添加的边同时添加到 $ G $ 中，即可达到我们上面定义的目标。
 
@@ -122,7 +122,7 @@ RobustVamana的解决方案非常简单，就是将 $ q_h $ 直接添加到图�
 
 一个自然的想法是能否将理论扩展为当 $ \delta(q_t, q_h) \le \epsilon $ 时，保证 $ q_t $ 的搜索准确度。但我们考虑极端情况，base data  $ X $ 的 $ N $ 个点都聚集在 $ q_h $ 附近，任意两个点到 $ q_h $ 距离均不同，并且满足：
 
- $  $ \forall u \in X, |\delta(u,q_h) - \delta(N_{1,q_h}, q_h)| \le \epsilon_0 $  $  
+ $$ \forall u \in X, |\delta(u,q_h) - \delta(N_{1,q_h}, q_h)| \le \epsilon_0 $$  
 
 其中 $ \epsilon_0 $ 是一个非常小的值，那么在该情况下，保证 $ \delta(q_t, q_h) \le \epsilon $ 就需要考虑整个base data  $ X $ ，显然是不现实的。
 
