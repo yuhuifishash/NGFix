@@ -212,7 +212,7 @@ struct node
             // Too many long edges (i.e., edges with inf EH) will improve performance when L >= MAX_S (high recall),
             // but will decrease the search performance when L is low (e.g. moderate recall or low recall).
             // Therefore, we limit the number of edges with inf EH.
-            // if(eh == EH_INF && inf_cnt >= (float)MEX * INF_RATIO) {return;}
+            if(eh == EH_INF && inf_cnt >= (float)MEX * INF_RATIO) {return;}
             if(eh < min_eh) {return;}
             ehs[min_idx] = eh;
             neighbors[min_idx + 1] = v;
