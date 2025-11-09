@@ -61,7 +61,7 @@ struct node
     */
 
 
-    // neighbros => [{capacity, sz, delete_flag, ref_count}, edges]
+    // neighbors => [{capacity, sz, ngfix_capacity, ngfix_sz}, edges]
     id_t* neighbors = nullptr;
     uint16_t* ehs = nullptr;
 
@@ -84,7 +84,10 @@ struct node
 
     void delete_node() {
         delete []neighbors;
-        delete []ehs;
+        if(ehs != nullptr) {
+            delete []ehs;
+            ehs = nullptr;
+        }
         neighbors = new id_t[CAPACITY_INC + 1];
         neighbors[0] = 0;
         SET_CAPACITY((uint8_t*)neighbors, CAPACITY_INC);
